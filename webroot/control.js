@@ -35,14 +35,12 @@ function createWebSocket() {
 
 	ws.onmessage = function(event) {
 
-		var msg = JSON.parse(event.data);
+		var je = JSON.parse(event.data);
 
-		ev = JSON.parse(msg.Event) 
-
-		switch(msg.Type) {
+		switch(je.Type) {
 
 			case 1: // AUTH_OK  
-				authOk(msg.Event); 
+				authOk(je); 
 				break;
 
 			case 2: // AUTH_USERNAME_IN_USE
@@ -64,13 +62,13 @@ function createWebSocket() {
 				// ACTIONS
 
 			case 32: // TrackPower
-				handleEvent(msg, ev, "actionLog") 
+				handleEvent(je, "actionLog") 
 				break;
 			case 64: // Chat 
-				handleEvent(msg, ev, "chatLog") 
+				handleEvent(je, "chatLog") 
 				break;
 			default: 
-				console.log("Unknown event: ", msg.Type) 
+				console.log("Unknown event: ", je.Type) 
 		}
 
 	};
@@ -88,9 +86,13 @@ function autoAuth() {
     document.getElementById('authErrorInUse').className = 'authError hidden';
     document.getElementById('authErrorPassRequired').className = 'authError hidden';
     document.getElementById('AuthErrorBadPass').className = 'authError hidden';
+
+    authenticated = false; 
 }
 
-function authOk(token) {
+function authOk(je) {
+
+    token = JSON.parse(je.Event);
 
     document.getElementById('authScreen').className = 'hidden';    
     document.getElementById('authInput').className = 'hidden';
@@ -98,8 +100,8 @@ function authOk(token) {
     document.getElementById('authErrorPassRequired').className = 'authError hidden';
     document.getElementById('AuthErrorBadPass').className = 'authError hidden';
 
-    setCookie("authToken", token) 
-    setCookie("username", username) 
+    setCookie("authToken", token); 
+    setCookie("username", username);
 
     authenticated = true;
 }
@@ -214,12 +216,14 @@ document.onkeydown = function checkKey(e) {
 
 function clearChatLog() {
 	var node = document.getElementById("chatLog");
-	while (node.firstChild) {
+	while (node && node.firstChild) {
     	node.removeChild(node.firstChild);
 	}
 }
 
-function handleEvent(je, ev, type) {
+function handleEvent(je, type) {
+
+    ev = JSON.parse(je.Event)
 
 	var elem = document.getElementById(type);
 	children = elem.children;

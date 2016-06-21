@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/net/websocket"
@@ -45,12 +46,13 @@ const (
 
 type JsonEvent struct {
 	Type     int
+	Time     int64
 	Event    string
 	UserInfo UserInfo
 }
 
 type Action struct {
-	Id     int64
+	Id     uint64
 	Time   string
 	Action string
 }
@@ -94,6 +96,8 @@ var (
 	chatLog = list.New()
 
 	chatChan = make(chan JsonEvent, 100)
+
+	chatNum uint64
 )
 
 var robothostport = flag.String("host", "", "host port of dartbot")
@@ -106,6 +110,10 @@ func main() {
 		flag.PrintDefaults()
 		log.Fatal("Plase provide a host:port.\n")
 	}
+
+	// Seed the chat number with the curren time.
+	startTime := time.Now().UnixNano() / int64(time.Millisecond)
+	atomic.StoreUint64(&chatNum, uint64(startTime))
 
 	url := fmt.Sprintf("ws://%v/control", *robothostport)
 	ref := fmt.Sprintf("http://%v/", *robothostport)
@@ -267,7 +275,9 @@ func jsonEvent(t int, v interface{}, userInfo UserInfo) (JsonEvent, error) {
 		return JsonEvent{}, err
 	}
 
-	je := JsonEvent{UserInfo: userInfo, Type: t, Event: string(jb)}
+	time := time.Now().UnixNano() / int64(time.Millisecond)
+
+	je := JsonEvent{Type: t, Time: time, Event: string(jb), UserInfo: userInfo}
 	return je, nil
 }
 
@@ -283,7 +293,7 @@ func clientEventReader(c *Client) {
 	}
 }
 
-func addClient(c *Client, authenticated bool, token string) bool {
+func addClient(c *Client, authenticated bool, token string) (bool, error) {
 
 	clientMu.Lock()
 	defer clientMu.Unlock()
@@ -293,6 +303,9 @@ func addClient(c *Client, authenticated bool, token string) bool {
 	m, ok := clients[c.Name]
 	if ok && !authenticated {
 		for c, _ := range m {
+
+			log.Printf("CHECKING: %v <=> %v\n", c.Token, token)
+
 			if c.Token == token {
 				tokenMatch = true
 			}
@@ -300,18 +313,29 @@ func addClient(c *Client, authenticated bool, token string) bool {
 	}
 
 	if ok && !tokenMatch {
-		return false
+		return false, nil
 	}
 
 	if !ok {
+
+		// Create new token for new name.
+		if token, err := newToken(); err != nil {
+			return false, fmt.Errorf("Failed to create new token: %v", err)
+		} else {
+			c.Token = token
+		}
+
 		m = make(map[*Client]interface{})
 		clients[c.Name] = m
+
+	} else {
+		c.Token = token
 	}
 
 	m[c] = nil
 	log.Printf("Adding client %v:%p\n", c.Name, c)
 
-	return true
+	return true, nil
 }
 
 func delClient(c *Client) {
@@ -393,7 +417,9 @@ func clientHandler(ws *websocket.Conn, events chan JsonEvent) {
 		}
 
 		client.Name = authEvent.Name
-		if addClient(client, authenticated, authEvent.Token) != true {
+		if ok, err := addClient(client, authenticated, authEvent.Token); err != nil {
+			wsLogErrorf(ws, "Failed to add client: %v", err)
+		} else if !ok {
 
 			je, err := jsonEvent(AuthUserInUse, "Username already in use.", UserInfo{Name: "SYSTEM", Id: "SYSTEM:0"})
 			if err != nil {
@@ -410,13 +436,6 @@ func clientHandler(ws *websocket.Conn, events chan JsonEvent) {
 			break
 		}
 
-	}
-
-	if token, err := newToken(); err != nil {
-		client.logErrorf("%v\n", err.Error())
-		return
-	} else {
-		client.Token = token
 	}
 
 	client.logInfof("Authenticated.")
@@ -466,7 +485,7 @@ func (c *Client) chatCatchUp() {
 	// Make a copy of the list because we don't want to hold the lock
 	// while we wait to send all the events to the client (which my be slow).
 	chatMu.RLock()
-	catchupLog := make([]JsonEvent, chatLog.Len())
+	catchupLog := make([]JsonEvent, 0, chatLog.Len())
 	for e := chatLog.Front(); e != nil; e = e.Next() {
 		catchupLog = append(catchupLog, e.Value.(JsonEvent))
 	}
@@ -499,9 +518,8 @@ func (c *Client) handleChatEvent(e JsonEvent) {
 
 	c.logPrefixf("CHAT", "%v\n", e.Event)
 
-	// Chat order is not *that* important. Because of timing the real order
-	// of two closely timed chats could flip flop 1000 times before getting set.
-	id := time.Now().UnixNano() / int64(time.Millisecond)
+	// This will ensure that all chats have a unis id
+	id := atomic.AddUint64(&chatNum, 1)
 
 	a := Action{Id: id, Time: formatedTime(), Action: e.Event}
 	je, err := jsonEvent(ChatEvent, a, c.userInfo())
