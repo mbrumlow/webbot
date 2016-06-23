@@ -312,8 +312,8 @@ function post( address, message ) {
 function updatePower() {
     
     var power = {};
-    power["Left"] = Number(powerLeft) - 255;
-    power["Right"] = Number(powerRight) - 255;
+    power["Left"] = Number(powerL) - 255;
+    power["Right"] = Number(powerR) - 255;
    
     var je = {}; 
     je["Type"] = 2; // TrackPower
