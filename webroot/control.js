@@ -1,5 +1,8 @@
 
-var ws; 
+var ws;
+var powerL = 0; 
+var powerR = 0; 
+
 var powerLinked = true; 
 var username = ""; 
 var authenticated = false;
@@ -154,15 +157,14 @@ function authBadName() {
     authenticated = false;
 }
 
-var chatEnabled = false; 
-function chatSelected(selected) {
-	console.log("Chat enabled", selected); 
-	chatEnabled = selected
-}
-
 document.onkeydown = function checkKey(e) {
 
 	e = e || window.event;
+
+    var chatEnabled = false; 
+    if( document.getElementById("txtArea").value.length != 0 ) {
+        chatEnabled = true;   
+    }
 
 	switch(e.keyCode) {
 		case 38:
@@ -308,12 +310,10 @@ function post( address, message ) {
 */
 
 function updatePower() {
-    pl = document.getElementById("powerLeft");
-    pr = document.getElementById("powerRight");
     
     var power = {};
-    power["Left"] = Number(pl.value) - 255;
-    power["Right"] = Number(pr.value) - 255;
+    power["Left"] = Number(powerLeft) - 255;
+    power["Right"] = Number(powerRight) - 255;
    
     var je = {}; 
     je["Type"] = 2; // TrackPower
@@ -322,31 +322,13 @@ function updatePower() {
     ws.send(JSON.stringify(je));
 }
 
-function updatePowerLinked(e) {
-
-    if(powerLinked)  {
-        if(e.id == "powerLeft") {
-             pr = document.getElementById("powerRight");
-             pr.value = e.value; 
-        } else if (e.id == "powerRight") {
-            pl = document.getElementById("powerLeft");
-            pl.value = e.value; 
-        }
-    }
-
-    updatePower();
-}
-
 function powerRight(p) {
-    pr = document.getElementById("powerRight");
-    pr.value = p; 
+    powerR = p; 
 }
 
 function powerLeft(p) {
-    pl = document.getElementById("powerLeft");
-    pl.value = p;   
+    powerL = p;   
 }
-
 
 function rotateLeft() {
     dir = 3; 
@@ -409,8 +391,6 @@ function sendChat() {
 	var info = {};
 	info["Type"] = 64; // CHAT_EVENT
 	info["Event"] = document.getElementById("txtArea").value;
-
-	
 
     ws.send(JSON.stringify(info));
     document.getElementById("txtArea").value = '';

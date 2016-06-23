@@ -74,6 +74,15 @@
     border-color: black; 
 }
 
+.controlTable {
+    width: 100%;   
+    height: 200px;
+}
+
+.controlTable td {
+    text-align: center;   
+}
+
 .authError {
     width: 100%;
     color: red;     
@@ -110,7 +119,6 @@
     height: 275px;
     background: white; 
     margin: 0 auto;
-    padding-left: 5px;
     font-family: Monospace;
     overflow-x: hidden; 
     overflow-y: scroll; 
@@ -152,43 +160,26 @@
     width: 384px; 
     height: 480px; 
     background: white;
-    display: table;
+    display: inline-block;
 }
 
-.leftPanel > div{
-    display: table-row;
-    height: 0;
-}
-
-.leftPanel > div.fill{
-    height: auto;
-}
 
 .rightPanel {
-    width: 100%; 
-    height: 100%; 
-    background: grey; 
+    width: 640px; 
+    height: 480px; 
+    background: grey;
+    display: inline-block;
 }
 
 .actionLog {
    overflow:hidden;
-   width: 379px; 
-   padding-left: 5px;
+   width: 100%; 
    border-top-color: black; 
    border-top-style: solid;
    font-family: Monospace;
-   display: inline-block; 
+   height: 276px;
 }
 
-.absLeftMiddle {
-    display:inline-block;
-    float:left;
-    width: 33%;
-    text-align: center;
-    padding-top: 5px;
-    padding-bottom: 5px;
-    font-size: 200%;
-}
 
 .nobutton:hover {
     background-color: grey;    
@@ -200,6 +191,10 @@
     vertical-align: middle;;
     padding-top: 5px;
     padding-bottom: 5px;
+    display: inline-block;
+    margin: 0 auto;
+    font-size: 200%;
+    width: 100%;
 }
 
 .absLeft {
