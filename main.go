@@ -4,13 +4,18 @@ import (
 	"bytes"
 	"container/list"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -38,10 +43,20 @@ const (
 const (
 	_                = iota
 	AuthOK           = iota
+	AuthError        = iota
 	AuthUserInUse    = iota
 	AuthPassRequired = iota
 	AuthBadPass      = iota
 	AuthBadName      = iota
+)
+
+// Auth sates
+// Used for authentiation flow control.
+const (
+	authStateGetAuth = iota
+	authStateAdd     = iota
+	authStatePass    = iota
+	authStateOK      = iota
 )
 
 type JsonEvent struct {
@@ -69,22 +84,31 @@ type Chat struct {
 
 type AuthEvent struct {
 	Name  string
-	Auth  string
 	Token string
 }
 
+type PassEvent struct {
+	Pass string
+}
+
 type Client struct {
-	To     chan JsonEvent
-	From   chan JsonEvent
-	Name   string
-	Active bool
-	Token  string
-	ws     *websocket.Conn
+	To            chan JsonEvent
+	From          chan JsonEvent
+	Name          string
+	Active        bool
+	Token         string
+	ws            *websocket.Conn
+	authenticated bool
 }
 
 type UserInfo struct {
 	Name string
 	Id   string
+}
+
+type User struct {
+	Name string
+	Pass string
 }
 
 var (
@@ -100,7 +124,8 @@ var (
 	chatNum uint64
 )
 
-var robothostport = flag.String("host", "", "host port of dartbot")
+var robothostport = flag.String("host", "", "host port of dartbot.")
+var dataDir = flag.String("data", "data", "Data directory.")
 
 func main() {
 
@@ -109,6 +134,10 @@ func main() {
 	if *robothostport == "" {
 		flag.PrintDefaults()
 		log.Fatal("Plase provide a host:port.\n")
+	}
+
+	if err := os.MkdirAll(*dataDir, 0700); err != nil {
+		log.Fatal("Failed to create data directory: %v\n", err.Error())
 	}
 
 	// Seed the chat number with the curren time.
@@ -127,8 +156,8 @@ func main() {
 
 		ws, err := websocket.Dial(url, "", ref)
 		if err != nil {
-			log.Printf("ERROR: Failed to connect to dartbot: %v\n", err.Error())
-			robotDownEvent()
+			//log.Printf("ERROR: Failed to connect to dartbot: %v\n", err.Error())
+			//robotDownEvent()
 
 			// Clean out pending events.
 			for i := len(events); i > 0; i-- {
@@ -293,34 +322,93 @@ func clientEventReader(c *Client) {
 	}
 }
 
-func addClient(c *Client, authenticated bool, token string) (bool, error) {
+func nameRegistered(name string) (bool, error) {
+
+	userFile := filepath.Join(*dataDir, name)
+	_, err := os.Stat(userFile)
+	if err == nil {
+		return true, nil
+	} else if os.IsNotExist(err) {
+		return false, nil
+	}
+
+	return false, err
+}
+
+func wsAuthClient(ws *websocket.Conn, c *Client, pass string) (bool, error) {
+
+	sha_256 := sha256.New()
+	sha_256.Write([]byte(pass))
+	ciphertext := hex.EncodeToString(sha_256.Sum(nil))
+
+	userFile := filepath.Join(*dataDir, c.Name)
+
+	b, err := ioutil.ReadFile(userFile)
+	if err != nil {
+		return false, fmt.Errorf("Failed to read uesr file: %v", err.Error())
+	}
+
+	var user User
+	if err := json.Unmarshal(b, &user); err != nil {
+		return false, fmt.Errorf("Failed to unmarshal user file: %v", err.Error())
+	}
+
+	if user.Name == c.Name && user.Pass == ciphertext {
+		return true, nil
+	}
+
+	if err := wsAuthError(ws, AuthBadPass); err != nil {
+		return false, err
+	}
+
+	return false, nil
+}
+
+func wsAddClient(ws *websocket.Conn, c *Client) (int, error) {
 
 	clientMu.Lock()
 	defer clientMu.Unlock()
 
+	if ok, err := nameRegistered(c.Name); err != nil {
+		return 0, err
+	} else if ok && !c.authenticated {
+
+		if err := wsAuthError(ws, AuthPassRequired); err != nil {
+			return 0, err
+		}
+
+		return authStatePass, nil
+	}
+
 	tokenMatch := false
-
 	m, ok := clients[c.Name]
-	if ok && !authenticated {
-		for c, _ := range m {
-
-			log.Printf("CHECKING: %v <=> %v\n", c.Token, token)
-
-			if c.Token == token {
+	if ok {
+		for client, _ := range m {
+			if client.Token == c.Token {
 				tokenMatch = true
 			}
 		}
 	}
 
-	if ok && !tokenMatch {
-		return false, nil
+	// A user with this name is already logged in.
+	// User is not authenticated.
+	// Name is not registered.
+	if ok && !tokenMatch && !c.authenticated {
+
+		if err := wsAuthError(ws, AuthUserInUse); err != nil {
+			return 0, err
+		}
+
+		return authStateGetAuth, nil
 	}
 
+	// * Nobody else is logged in to this name.
+	// * Name not registered.
 	if !ok {
 
 		// Create new token for new name.
 		if token, err := newToken(); err != nil {
-			return false, fmt.Errorf("Failed to create new token: %v", err)
+			return AuthError, fmt.Errorf("Failed to create new token: %v", err)
 		} else {
 			c.Token = token
 		}
@@ -328,14 +416,11 @@ func addClient(c *Client, authenticated bool, token string) (bool, error) {
 		m = make(map[*Client]interface{})
 		clients[c.Name] = m
 
-	} else {
-		c.Token = token
 	}
 
 	m[c] = nil
 	log.Printf("Adding client %v:%p\n", c.Name, c)
-
-	return true, nil
+	return authStateOK, nil
 }
 
 func delClient(c *Client) {
@@ -370,6 +455,59 @@ func newToken() (string, error) {
 
 }
 
+func wsAuthError(ws *websocket.Conn, authError int) error {
+
+	je, err := jsonEvent(authError, "Auth Error", UserInfo{Name: "SYSTEM", Id: "SYSTEM:0"})
+	if err != nil {
+		wsLogErrorf(ws, "Failed to create Auth Error event: %v", err)
+		return err
+	}
+
+	if err := websocket.JSON.Send(ws, &je); err != nil {
+		wsLogErrorf(ws, "Failed to send Auth Error event: %v", err)
+		return err
+	}
+
+	return nil
+}
+
+func wsGetAuth(ws *websocket.Conn) (string, string, error) {
+
+	var authEvent AuthEvent
+	if err := websocket.JSON.Receive(ws, &authEvent); err != nil {
+		return "", "", err
+	}
+
+	return authEvent.Name, authEvent.Token, nil
+}
+
+func wsGetPass(ws *websocket.Conn) (string, error) {
+
+	var passEvent PassEvent
+	if err := websocket.JSON.Receive(ws, &passEvent); err != nil {
+		return "", err
+	}
+
+	return passEvent.Pass, nil
+}
+
+func wsValidateName(ws *websocket.Conn, name string) (bool, error) {
+
+	if name != "" {
+		return true, nil
+	}
+
+	// TODO: Add more validation requirements.
+
+	wsLogErrorf(ws, "BAD USER: '%v'\n", name)
+
+	if err := wsAuthError(ws, AuthBadName); err != nil {
+		return false, err
+	}
+
+	return false, nil
+}
+
 func clientHandler(ws *websocket.Conn, events chan JsonEvent) {
 
 	defer ws.Close()
@@ -382,60 +520,50 @@ func clientHandler(ws *websocket.Conn, events chan JsonEvent) {
 		ws:   ws,
 	}
 
-	for {
+	state := authStateGetAuth
+	for state != authStateOK {
+		switch state {
 
-		var authEvent AuthEvent
-		err := websocket.JSON.Receive(ws, &authEvent)
-		if err != nil {
-			wsLogInfof(ws, "Error receiving auth event: %v", err.Error())
-			return
-		}
-
-		wsLogInfof(ws, "Recived auth for '%v'", authEvent.Name)
-
-		if authEvent.Name == "" {
-			je, err := jsonEvent(AuthBadName, "Invalid username.", UserInfo{Name: "SYSTEM", Id: "SYSTEM:0"})
-			if err != nil {
-				wsLogErrorf(ws, "Failed to create AuthUserInUse event: %v", err)
+		case authStateGetAuth:
+			wsLogInfof(ws, "authStateGetAuth")
+			if name, token, err := wsGetAuth(ws); err != nil {
+				wsLogErrorf(ws, "Failed to get client auth: %v\n", err.Error())
 				return
-			}
-			if err := websocket.JSON.Send(ws, &je); err != nil {
-				wsLogErrorf(ws, "Failed to send AuthBadName event: %v", err)
-				return
-			}
-			continue
-		}
-
-		authenticated := false
-		if len(authEvent.Auth) > 0 {
-			// TODO authenticate
-
-		}
-
-		if !authenticated {
-			// TODO: Check if name is registered.
-		}
-
-		client.Name = authEvent.Name
-		if ok, err := addClient(client, authenticated, authEvent.Token); err != nil {
-			wsLogErrorf(ws, "Failed to add client: %v", err)
-		} else if !ok {
-
-			je, err := jsonEvent(AuthUserInUse, "Username already in use.", UserInfo{Name: "SYSTEM", Id: "SYSTEM:0"})
-			if err != nil {
-				wsLogErrorf(ws, "Failed to create AuthUserInUse event: %v", err)
-				return
+			} else {
+				if ok, err := wsValidateName(ws, name); err != nil {
+					wsLogErrorf(ws, "Failed to validate name: %v\n", err.Error())
+					return
+				} else if ok {
+					client.Name = name
+					client.Token = token
+					state = authStateAdd
+				}
 			}
 
-			if err := websocket.JSON.Send(ws, &je); err != nil {
-				wsLogErrorf(ws, "Failed to send AuthUserInUse event: %v", err)
+		case authStateAdd:
+			wsLogInfof(ws, "authStateAdd")
+			if newState, err := wsAddClient(ws, client); err != nil {
+				wsLogErrorf(ws, "Failed to add client: %v\n", err.Error())
 				return
+			} else {
+				state = newState
 			}
-		} else {
-			defer delClient(client)
-			break
-		}
 
+		case authStatePass:
+			wsLogInfof(ws, "authStatePass")
+			if pass, err := wsGetPass(ws); err != nil {
+				wsLogErrorf(ws, "Failed to get client pass: %v\n", err.Error())
+				return
+			} else {
+				if ok, err := wsAuthClient(ws, client, pass); err != nil {
+					wsLogErrorf(ws, "Failed to auth client: %v\n", err.Error())
+					return
+				} else if ok {
+					client.authenticated = true
+					state = authStateAdd
+				}
+			}
+		}
 	}
 
 	client.logInfof("Authenticated.")

@@ -46,19 +46,22 @@ function createWebSocket() {
 				authOk(je); 
 				break;
 
-			case 2: // AUTH_USERNAME_IN_USE
+            case 2: // AUTH_ERROR
+                break;
+
+			case 3: // AUTH_USERNAME_IN_USE
 				authUserInUse();
 				break; 
 
-			case 3: // AUTH_REQUIRE_PASSWORD 
+			case 4: // AUTH_REQUIRE_PASSWORD 
 				authPassRequired();
 				break;
 
-			case 4: // AUTH_BAD_PASSWORD
+			case 5: // AUTH_BAD_PASSWORD
 				authBadPass(); 
 				break;
 
-			case 5: // AUTH_BAD_NAME
+			case 6: // AUTH_BAD_NAME
 				authBadName(); 
 				break;
 
@@ -87,7 +90,6 @@ function autoAuth() {
     document.getElementById('authScreen').className = 'hidden';    
     document.getElementById('authInput').className = 'hidden';
     document.getElementById('authErrorInUse').className = 'authError hidden';
-    document.getElementById('authErrorPassRequired').className = 'authError hidden';
     document.getElementById('AuthErrorBadPass').className = 'authError hidden';
 
     authenticated = false; 
@@ -100,7 +102,6 @@ function authOk(je) {
     document.getElementById('authScreen').className = 'hidden';    
     document.getElementById('authInput').className = 'hidden';
     document.getElementById('authErrorInUse').className = 'authError hidden';
-    document.getElementById('authErrorPassRequired').className = 'authError hidden';
     document.getElementById('AuthErrorBadPass').className = 'authError hidden';
 
     setCookie("authToken", token); 
@@ -113,8 +114,9 @@ function authUserInUse() {
 
     document.getElementById('authScreen').className = 'visible';    
     document.getElementById('authInput').className = 'visible';
+    document.getElementById('authName').className = 'visible';
+    document.getElementById('authPass').className = 'hidden';
     document.getElementById('authErrorInUse').className = 'authError visible';
-    document.getElementById('authErrorPassRequired').className = 'authError hidden';
     document.getElementById('AuthErrorBadPass').className = 'authError hidden';
     document.getElementById('AuthErrorBadName').className = 'authError hidden';
        
@@ -125,8 +127,9 @@ function authPassRequired() {
 
     document.getElementById('authScreen').className = 'visible';    
     document.getElementById('authInput').className = 'visible';
+    document.getElementById('authName').className = 'hidden';
+    document.getElementById('authPass').className = 'visible';
     document.getElementById('authErrorInUse').className = 'authError hidden';
-    document.getElementById('authErrorPassRequired').className = 'authError visible';
     document.getElementById('AuthErrorBadPass').className = 'authError hidden';
     document.getElementById('AuthErrorBadName').className = 'authError hidden';
        
@@ -137,8 +140,9 @@ function authBadPass() {
 
     document.getElementById('authScreen').className = 'visible';    
     document.getElementById('authInput').className = 'visible';
+    document.getElementById('authName').className = 'hidden';
+    document.getElementById('authPass').className = 'visible';
     document.getElementById('authErrorInUse').className = 'authError hidden';
-    document.getElementById('authErrorPassRequired').className = 'authError hidden';
     document.getElementById('AuthErrorBadPass').className = 'authError visible';
     document.getElementById('AuthErrorBadName').className = 'authError hidden';
        
@@ -149,8 +153,9 @@ function authBadName() {
 
     document.getElementById('authScreen').className = 'visible';    
     document.getElementById('authInput').className = 'visible';
+    document.getElementById('authName').className = 'visible';
+    document.getElementById('authPass').className = 'hidden';
     document.getElementById('authErrorInUse').className = 'authError hidden';
-    document.getElementById('authErrorPassRequired').className = 'authError hidden';
     document.getElementById('AuthErrorBadPass').className = 'authError hidden';
     document.getElementById('AuthErrorBadName').className = 'authError visible';
        
@@ -285,14 +290,23 @@ function insertEventFast(je, ev, type) {
 
 }
 
-function login() {
+function sendName() {
 
     username = document.getElementById("nameInput").value; 
-    password = document.getElementById("passInput").value; 
 
     ws.send(JSON.stringify({
         Name: username,
-        Auth: password,
+    }));
+
+    return false;
+
+}
+
+function sendPass() {
+
+    password = document.getElementById("passInput").value; 
+    ws.send(JSON.stringify({
+        Pass: password,
     }));
 
     return false;

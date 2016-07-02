@@ -59,7 +59,7 @@
 
 #authInput {
     width: 400px;
-    height: 250px;
+    height: 200px;
     background-color: white;
     text-align: center;
             
@@ -81,6 +81,16 @@
 
 .controlTable td {
     text-align: center;   
+}
+
+#authName {
+    width: 100%;
+    text-align: center;
+}
+
+#authPass {
+    width: 100%;
+    text-align: center;
 }
 
 .authError {
