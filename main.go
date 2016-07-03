@@ -38,6 +38,7 @@ const (
 	EndVideo
 	ActionEvent
 	ChatEvent
+	RegisterEvent
 )
 
 const (
@@ -122,6 +123,8 @@ var (
 	chatChan = make(chan JsonEvent, 100)
 
 	chatNum uint64
+
+	passMu sync.RWMutex
 )
 
 var robothostport = flag.String("host", "", "host port of dartbot.")
@@ -324,7 +327,7 @@ func clientEventReader(c *Client) {
 
 func nameRegistered(name string) (bool, error) {
 
-	userFile := filepath.Join(*dataDir, name)
+	userFile := filepath.Join(*dataDir, "users", name)
 	_, err := os.Stat(userFile)
 	if err == nil {
 		return true, nil
@@ -337,11 +340,15 @@ func nameRegistered(name string) (bool, error) {
 
 func wsAuthClient(ws *websocket.Conn, c *Client, pass string) (bool, error) {
 
+	// TODO -- handle this without a global lock.
+	passMu.RLock()
+	passMu.RUnlock()
+
 	sha_256 := sha256.New()
 	sha_256.Write([]byte(pass))
 	ciphertext := hex.EncodeToString(sha_256.Sum(nil))
 
-	userFile := filepath.Join(*dataDir, c.Name)
+	userFile := filepath.Join(*dataDir, "users", c.Name)
 
 	b, err := ioutil.ReadFile(userFile)
 	if err != nil {
@@ -357,7 +364,7 @@ func wsAuthClient(ws *websocket.Conn, c *Client, pass string) (bool, error) {
 		return true, nil
 	}
 
-	if err := wsAuthError(ws, AuthBadPass); err != nil {
+	if err := wsSendEvent(ws, AuthBadPass, "Bad pass."); err != nil {
 		return false, err
 	}
 
@@ -369,24 +376,26 @@ func wsAddClient(ws *websocket.Conn, c *Client) (int, error) {
 	clientMu.Lock()
 	defer clientMu.Unlock()
 
-	if ok, err := nameRegistered(c.Name); err != nil {
-		return 0, err
-	} else if ok && !c.authenticated {
-
-		if err := wsAuthError(ws, AuthPassRequired); err != nil {
-			return 0, err
-		}
-
-		return authStatePass, nil
-	}
-
 	tokenMatch := false
 	m, ok := clients[c.Name]
 	if ok {
 		for client, _ := range m {
-			if client.Token == c.Token {
+			if c.Token != "" && client.Token == c.Token {
 				tokenMatch = true
 			}
+		}
+	}
+
+	if !ok || ok && !tokenMatch {
+		if ok, err := nameRegistered(c.Name); err != nil {
+			return 0, err
+		} else if ok && !c.authenticated {
+
+			if err := wsSendEvent(ws, AuthPassRequired, "Password Required."); err != nil {
+				return 0, err
+			}
+
+			return authStatePass, nil
 		}
 	}
 
@@ -395,7 +404,7 @@ func wsAddClient(ws *websocket.Conn, c *Client) (int, error) {
 	// Name is not registered.
 	if ok && !tokenMatch && !c.authenticated {
 
-		if err := wsAuthError(ws, AuthUserInUse); err != nil {
+		if err := wsSendEvent(ws, AuthUserInUse, "Name in use."); err != nil {
 			return 0, err
 		}
 
@@ -416,6 +425,14 @@ func wsAddClient(ws *websocket.Conn, c *Client) (int, error) {
 		m = make(map[*Client]interface{})
 		clients[c.Name] = m
 
+	}
+
+	if c.Token == "" {
+		if token, err := newToken(); err != nil {
+			return AuthError, fmt.Errorf("Failed to create new token: %v", err)
+		} else {
+			c.Token = token
+		}
 	}
 
 	m[c] = nil
@@ -455,9 +472,9 @@ func newToken() (string, error) {
 
 }
 
-func wsAuthError(ws *websocket.Conn, authError int) error {
+func wsSendEvent(ws *websocket.Conn, event int, data string) error {
 
-	je, err := jsonEvent(authError, "Auth Error", UserInfo{Name: "SYSTEM", Id: "SYSTEM:0"})
+	je, err := jsonEvent(event, data, UserInfo{Name: "SYSTEM", Id: "SYSTEM:0"})
 	if err != nil {
 		wsLogErrorf(ws, "Failed to create Auth Error event: %v", err)
 		return err
@@ -501,7 +518,7 @@ func wsValidateName(ws *websocket.Conn, name string) (bool, error) {
 
 	wsLogErrorf(ws, "BAD USER: '%v'\n", name)
 
-	if err := wsAuthError(ws, AuthBadName); err != nil {
+	if err := wsSendEvent(ws, AuthBadName, "Bad name."); err != nil {
 		return false, err
 	}
 
@@ -566,26 +583,12 @@ func clientHandler(ws *websocket.Conn, events chan JsonEvent) {
 		}
 	}
 
-	client.logInfof("Authenticated.")
+	client.logInfof("Authenticated: %v", client.Token)
 
-	if err := func() error {
-		je, err := jsonEvent(AuthOK, client.Token, client.userInfo())
-		if err != nil {
-			return fmt.Errorf("Failed to create AuthUserInUse event: %v", err)
-		}
-
-		if err := websocket.JSON.Send(ws, &je); err != nil {
-			return fmt.Errorf("Failed to send AuthUserInUse event: %v", err)
-
-		}
-		return nil
-	}(); err != nil {
+	if err := wsSendEvent(ws, AuthOK, client.Token); err != nil {
 		client.logErrorf(err.Error())
 		return
 	}
-
-	// TODO - make client active / sync
-	// This should populate the clients chat back log and set current robot state.
 
 	go client.chatCatchUp()
 	go clientEventReader(client)
@@ -632,6 +635,8 @@ func (c *Client) handleEvent(je JsonEvent, events chan JsonEvent) {
 		c.handleChatEvent(je)
 	case TrackPower:
 		c.handleTrackPowerEvent(je, events)
+	case RegisterEvent:
+		c.handleRegisterEvent(je)
 	default:
 		c.logErrorf("Recived unknown event (%v)\n", je.Type)
 	}
@@ -641,6 +646,11 @@ func (c *Client) handleEvent(je JsonEvent, events chan JsonEvent) {
 func (c *Client) handleChatEvent(e JsonEvent) {
 
 	if e.Event == "" {
+		return
+	}
+
+	if strings.HasPrefix(e.Event, "/") {
+		c.handleCommandEvent(e)
 		return
 	}
 
@@ -669,6 +679,50 @@ func (c *Client) handleChatEvent(e JsonEvent) {
 	chatMu.Unlock()
 
 	sendToAll(je)
+}
+
+func (c *Client) handleRegisterEvent(e JsonEvent) {
+
+	// TODO - validate password.
+
+	// TODO - handle this without a global lock.
+	passMu.Lock()
+	passMu.Unlock()
+
+	sha_256 := sha256.New()
+	sha_256.Write([]byte(e.Event))
+	ciphertext := hex.EncodeToString(sha_256.Sum(nil))
+
+	userFile := filepath.Join(*dataDir, "users", c.Name)
+
+	user := User{Name: c.Name, Pass: ciphertext}
+
+	b, err := json.Marshal(&user)
+	if err != nil {
+		if err := wsSendEvent(c.ws, AuthError, "Internal auth error."); err != nil {
+			c.logErrorf("Failed to register: %v\n", err.Error())
+		}
+		return
+	}
+
+	if err := ioutil.WriteFile(userFile, b, 0600); err != nil {
+		if err := wsSendEvent(c.ws, AuthError, "Internal auth error."); err != nil {
+			c.logErrorf("Failed to register: %v\n", err.Error())
+		}
+		return
+	}
+
+	if err := wsSendEvent(c.ws, AuthOK, c.Token); err != nil {
+		c.logErrorf(err.Error())
+		return
+	}
+
+}
+
+func (c *Client) handleCommandEvent(e JsonEvent) {
+
+	// TODO - command handler.
+
 }
 
 func (c *Client) handleTrackPowerEvent(e JsonEvent, events chan JsonEvent) {
@@ -746,6 +800,7 @@ func sendAll(je JsonEvent) {
 		for c, _ := range m {
 			if len(c.To) > maxEvents-(maxEvents/10) {
 				c.logErrorf("Dropping events!")
+				// TODO: notify the client that some events were dropped.
 				for len(c.To) != 0 {
 					<-c.To
 				}

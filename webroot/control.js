@@ -101,6 +101,9 @@ function authOk(je) {
 
     document.getElementById('authScreen').className = 'hidden';    
     document.getElementById('authInput').className = 'hidden';
+    document.getElementById('authName').className = 'hidden';
+    document.getElementById('authPass').className = 'hidden';
+    document.getElementById('authRegister').className = 'hidden';
     document.getElementById('authErrorInUse').className = 'authError hidden';
     document.getElementById('AuthErrorBadPass').className = 'authError hidden';
 
@@ -116,6 +119,7 @@ function authUserInUse() {
     document.getElementById('authInput').className = 'visible';
     document.getElementById('authName').className = 'visible';
     document.getElementById('authPass').className = 'hidden';
+    document.getElementById('authRegister').className = 'hidden';
     document.getElementById('authErrorInUse').className = 'authError visible';
     document.getElementById('AuthErrorBadPass').className = 'authError hidden';
     document.getElementById('AuthErrorBadName').className = 'authError hidden';
@@ -129,6 +133,7 @@ function authPassRequired() {
     document.getElementById('authInput').className = 'visible';
     document.getElementById('authName').className = 'hidden';
     document.getElementById('authPass').className = 'visible';
+    document.getElementById('authRegister').className = 'hidden';
     document.getElementById('authErrorInUse').className = 'authError hidden';
     document.getElementById('AuthErrorBadPass').className = 'authError hidden';
     document.getElementById('AuthErrorBadName').className = 'authError hidden';
@@ -142,6 +147,7 @@ function authBadPass() {
     document.getElementById('authInput').className = 'visible';
     document.getElementById('authName').className = 'hidden';
     document.getElementById('authPass').className = 'visible';
+    document.getElementById('authRegister').className = 'hidden';
     document.getElementById('authErrorInUse').className = 'authError hidden';
     document.getElementById('AuthErrorBadPass').className = 'authError visible';
     document.getElementById('AuthErrorBadName').className = 'authError hidden';
@@ -155,11 +161,25 @@ function authBadName() {
     document.getElementById('authInput').className = 'visible';
     document.getElementById('authName').className = 'visible';
     document.getElementById('authPass').className = 'hidden';
+    document.getElementById('authRegister').className = 'hidden';
     document.getElementById('authErrorInUse').className = 'authError hidden';
     document.getElementById('AuthErrorBadPass').className = 'authError hidden';
     document.getElementById('AuthErrorBadName').className = 'authError visible';
        
     authenticated = false;
+}
+
+function authRegister() {
+
+    document.getElementById('authScreen').className = 'visible';    
+    document.getElementById('authInput').className = 'visible';
+    document.getElementById('authName').className = 'hidden';
+    document.getElementById('authPass').className = 'hidden';
+    document.getElementById('authRegister').className = 'visible';
+    document.getElementById('authErrorInUse').className = 'authError hidden';
+    document.getElementById('AuthErrorBadPass').className = 'authError hidden';
+    document.getElementById('AuthErrorBadName').className = 'authError hidden';
+       
 }
 
 document.onkeydown = function checkKey(e) {
@@ -302,9 +322,27 @@ function sendName() {
 
 }
 
+function sendRegister() {
+
+    var password = document.getElementById("passInputA").value; 
+    var password = SHA256(password); 
+    
+    var info = {};
+	info["Type"] = 128; // REGISTER_EVENT
+	info["Event"] = password;
+	
+    document.getElementById("passInputA").value = "";
+	document.getElementById("passInputB").value = "";
+
+    ws.send(JSON.stringify(info));
+    return false;
+
+}
+
 function sendPass() {
 
-    password = document.getElementById("passInput").value; 
+    password = document.getElementById("passInput").value;
+    password = SHA256(password); 
     ws.send(JSON.stringify({
         Pass: password,
     }));
@@ -401,6 +439,14 @@ function sendChat() {
 	if( document.getElementById("txtArea").value.length == 0 ) {
 		return;
 	}
+
+    // Local commands
+	if( document.getElementById("txtArea").value == "/register" ) {
+		authRegister();
+        document.getElementById("txtArea").value = '';
+        return;
+	}
+
 
 	var info = {};
 	info["Type"] = 64; // CHAT_EVENT

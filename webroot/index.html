@@ -2,6 +2,7 @@
 <head>
     <link rel="stylesheet" type="text/css" href="style.css">
     <script src="jsmpg.js"></script>
+    <script src="sha256.js"></script>
     <script src="control.js"></script>
 </head> 
 
@@ -23,6 +24,16 @@
                 <form acton="" onsubmit="return sendPass();">
                     Password<br> 
                     <input id="passInput" type="password" ></input><br> 
+                    <input type="submit" style="visibility: hidden;" value="none"  />
+                </form>
+            </div>
+            <div id="authRegister" class="hidden"> 
+                <h3>Register User</h3>
+                <form acton="" onsubmit="return sendRegister();">
+                    Password<br> 
+                    <input id="passInputA" type="password" ></input><br> 
+                    Retype Password<br> 
+                    <input id="passInputB" type="password" ></input><br> 
                     <input type="submit" style="visibility: hidden;" value="none"  />
                 </form>
             </div>
