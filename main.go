@@ -159,8 +159,8 @@ func main() {
 
 		ws, err := websocket.Dial(url, "", ref)
 		if err != nil {
-			//log.Printf("ERROR: Failed to connect to dartbot: %v\n", err.Error())
-			//robotDownEvent()
+			log.Printf("ERROR: Failed to connect to dartbot: %v\n", err.Error())
+			robotDownEvent()
 
 			// Clean out pending events.
 			for i := len(events); i > 0; i-- {
