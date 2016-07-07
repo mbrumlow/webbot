@@ -8,6 +8,16 @@ var username = "";
 var authenticated = false;
 var dir = 0; 
 
+// Web events 
+const ROBOT_COMMAND = 2; 
+
+// Robot event commands 
+const COMMAND_STOP     = 0; 
+const COMMAND_LEFT     = 1; 
+const COMMAND_RIGHT    = 2; 
+const COMMAND_FORWARD  = 3; 
+const COMMAND_BACKWARD = 4; 
+
 document.onload = createWebSocket(); 
 
 function createWebSocket() {
@@ -361,15 +371,11 @@ function post( address, message ) {
 }
 */
 
-function updatePower() {
-    
-    var power = {};
-    power["Left"] = Number(powerL) - 255;
-    power["Right"] = Number(powerR) - 255;
+function sendCommand(command) {
    
     var je = {}; 
-    je["Type"] = 2; // TrackPower
-    je["Event"] = JSON.stringify(power);
+    je["Type"] = ROBOT_COMMAND;  
+    je["Event"] = JSON.stringify(command);
     
     ws.send(JSON.stringify(je));
 }
@@ -384,37 +390,27 @@ function powerLeft(p) {
 
 function rotateLeft() {
     dir = 3; 
-    powerRight(255 * 2);
-    powerLeft(0); 
-    updatePower();
+    sendCommand(COMMAND_LEFT); 
 }
 
 function rotateRight() {
     dir = 2; 
-    powerRight(0);
-    powerLeft(255 * 2); 
-    updatePower();
+    sendCommand(COMMAND_RIGHT); 
 }
 
 function fullForward() {
     dir = 1; 
-    powerRight(510);
-    powerLeft(510); 
-    updatePower();
+    sendCommand(COMMAND_FORWARD); 
 }
 
 function fullStop() {
     dir = 0; 
-    powerRight(255); 
-    powerLeft(255); 
-    updatePower();
+    sendCommand(COMMAND_STOP);
 }
 
 function fullReverse() {
     dir = -1;
-    powerRight(0); 
-    powerLeft(0); 
-    updatePower();
+    sendCommand(COMMAND_BACKWARD); 
 }
 
 function toggleLinked() {

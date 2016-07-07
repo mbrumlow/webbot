@@ -21,6 +21,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/mbrumlow/webbot"
+
 	"golang.org/x/net/websocket"
 )
 
@@ -32,7 +34,7 @@ const (
 
 const (
 	Signal = 1 << iota
-	TrackPower
+	Command
 	Video
 	StartVideo
 	EndVideo
@@ -42,22 +44,22 @@ const (
 )
 
 const (
-	_                = iota
-	AuthOK           = iota
-	AuthError        = iota
-	AuthUserInUse    = iota
-	AuthPassRequired = iota
-	AuthBadPass      = iota
-	AuthBadName      = iota
+	_ = iota
+	AuthOK
+	AuthError
+	AuthUserInUse
+	AuthPassRequired
+	AuthBadPass
+	AuthBadName
 )
 
 // Auth sates
 // Used for authentiation flow control.
 const (
 	authStateGetAuth = iota
-	authStateAdd     = iota
-	authStatePass    = iota
-	authStateOK      = iota
+	authStateAdd
+	authStatePass
+	authStateOK
 )
 
 type JsonEvent struct {
@@ -134,11 +136,6 @@ func main() {
 
 	flag.Parse()
 
-	if *robothostport == "" {
-		flag.PrintDefaults()
-		log.Fatal("Plase provide a host:port.\n")
-	}
-
 	if err := os.MkdirAll(*dataDir, 0700); err != nil {
 		log.Fatal("Failed to create data directory: %v\n", err.Error())
 	}
@@ -147,49 +144,36 @@ func main() {
 	startTime := time.Now().UnixNano() / int64(time.Millisecond)
 	atomic.StoreUint64(&chatNum, uint64(startTime))
 
-	url := fmt.Sprintf("ws://%v/control", *robothostport)
-	ref := fmt.Sprintf("http://%v/", *robothostport)
-
 	events := make(chan JsonEvent, 1000)
+	flush := make(chan bool, 1)
 
 	go chatDispatcher()
-	go startHttp(events)
+	go eventFlusher(events, flush)
 
+	http.Handle("/video", websocket.Handler(clientVideoHandler))
+	http.Handle("/client", websocket.Handler(func(ws *websocket.Conn) {
+		clientHandler(ws, events)
+	}))
+
+	http.Handle("/robot", websocket.Handler(func(ws *websocket.Conn) {
+		robotHandler(ws, events, flush)
+	}))
+
+	fs := http.FileServer(http.Dir("webroot"))
+	http.Handle("/", http.StripPrefix("/", fs))
+	log.Fatal(http.ListenAndServe(":8080", nil))
+
+}
+
+func eventFlusher(events chan JsonEvent, flush chan bool) {
 	for {
-
-		ws, err := websocket.Dial(url, "", ref)
-		if err != nil {
-			log.Printf("ERROR: Failed to connect to dartbot: %v\n", err.Error())
-			robotDownEvent()
-
-			// Clean out pending events.
-			for i := len(events); i > 0; i-- {
-				<-events
+		select {
+		case ok := <-flush:
+			for !ok {
+				ok = <-flush
 			}
-
-			time.Sleep(1 * time.Second)
-			continue
+		case <-events:
 		}
-
-		// Clean out pending events.
-		for i := len(events); i > 0; i-- {
-			<-events
-		}
-
-		go handleRobotEvents(ws)
-
-		for {
-			event := <-events
-			userInfo := event.UserInfo
-			event.UserInfo = UserInfo{}
-			if err := websocket.JSON.Send(ws, &event); err != nil {
-				log.Printf("ERROR: Failed to send event to robot: %v.\n", err.Error())
-				break
-			}
-			event.UserInfo = userInfo
-			sendEventToClient(event)
-		}
-
 	}
 }
 
@@ -224,18 +208,6 @@ func decodeVideo(s string) {
 	sendVideoToClients(decoded)
 }
 
-func startHttp(events chan JsonEvent) {
-
-	http.Handle("/video", websocket.Handler(clientVideoHandler))
-	http.Handle("/client", websocket.Handler(func(ws *websocket.Conn) {
-		clientHandler(ws, events)
-	}))
-
-	fs := http.FileServer(http.Dir("webroot"))
-	http.Handle("/", http.StripPrefix("/", fs))
-	log.Fatal(http.ListenAndServe(":8080", nil))
-}
-
 func sendVideoToClients(d []byte) {
 
 	clientMu.RLock()
@@ -257,23 +229,23 @@ func sendVideoToClients(d []byte) {
 func sendEventToClient(ev JsonEvent) {
 
 	switch ev.Type {
-	case TrackPower:
-		powerEvent(ev.UserInfo, []byte(ev.Event))
+	case Command:
+		commandEvent(ev.UserInfo, []byte(ev.Event))
 	default:
 		log.Printf("ERROR: Not sending unknown event type (%v) to server.\n", ev.Type)
 	}
 
 }
 
-func powerEvent(userInfo UserInfo, jsonBytes []byte) {
+func commandEvent(userInfo UserInfo, jsonBytes []byte) {
 
-	var p Power
-	if err := json.Unmarshal(jsonBytes, &p); err != nil {
-		log.Printf("ERROR: Failed to unmarshal power: %v\n", err.Error())
+	var control webbot.RobotControl
+	if err := json.Unmarshal(jsonBytes, &control); err != nil {
+		log.Printf("ERROR: Failed to unmarshal command: %v\n", err.Error())
 		return
 	}
 
-	a := Action{Time: formatedTime(), Action: fmt.Sprintf("-- POWER(%v,%v) --", p.Left, p.Right)}
+	a := Action{Time: formatedTime(), Action: fmt.Sprintf("-- %v --", control)}
 
 	jsonBytes, err := json.Marshal(a)
 	if err != nil {
@@ -525,6 +497,46 @@ func wsValidateName(ws *websocket.Conn, name string) (bool, error) {
 	return false, nil
 }
 
+func robotHandler(ws *websocket.Conn, events chan JsonEvent, flush chan bool) {
+
+	// For now we will only support one robot, in the future as we connect
+	// new robots we will generate a new namespace for each robot.
+
+	// TODO - validate robot has access to this server.
+	// TODO - make sure we are the only robot, reject others!
+
+	flush <- false
+	defer func() {
+		flush <- true
+	}()
+
+	go handleRobotEvents(ws)
+
+	for {
+		event := <-events
+		if rb, ok := webEventToRobotEvent(event); ok {
+			if err := websocket.JSON.Send(ws, &rb); err != nil {
+				log.Printf("ERROR: Failed to send event to robot: %v.\n", err.Error())
+				break
+			}
+		} else {
+			log.Printf("Dropping unknown robot event: %v\n", event.Type)
+		}
+		sendEventToClient(event)
+	}
+
+}
+
+func webEventToRobotEvent(je JsonEvent) (webbot.RobotEvent, bool) {
+
+	switch je.Type {
+	case Command:
+		return webbot.RobotEvent{Type: webbot.Command, Event: je.Event}, true
+	}
+
+	return webbot.RobotEvent{}, false
+}
+
 func clientHandler(ws *websocket.Conn, events chan JsonEvent) {
 
 	defer ws.Close()
@@ -633,8 +645,8 @@ func (c *Client) handleEvent(je JsonEvent, events chan JsonEvent) {
 	switch je.Type {
 	case ChatEvent:
 		c.handleChatEvent(je)
-	case TrackPower:
-		c.handleTrackPowerEvent(je, events)
+	case Command:
+		c.handleCommandEvent(je, events)
 	case RegisterEvent:
 		c.handleRegisterEvent(je)
 	default:
@@ -650,7 +662,7 @@ func (c *Client) handleChatEvent(e JsonEvent) {
 	}
 
 	if strings.HasPrefix(e.Event, "/") {
-		c.handleCommandEvent(e)
+		c.handleWebCommandEvent(e)
 		return
 	}
 
@@ -719,24 +731,24 @@ func (c *Client) handleRegisterEvent(e JsonEvent) {
 
 }
 
-func (c *Client) handleCommandEvent(e JsonEvent) {
+func (c *Client) handleWebCommandEvent(e JsonEvent) {
 
 	// TODO - command handler.
 
 }
 
-func (c *Client) handleTrackPowerEvent(e JsonEvent, events chan JsonEvent) {
+func (c *Client) handleCommandEvent(e JsonEvent, events chan JsonEvent) {
 
 	// Sanity check, decode and encode before sending it to the robot.
-	var p Power
-	if err := json.Unmarshal([]byte(e.Event), &p); err != nil {
-		c.logErrorf("Failed decode TrackPower: %v\n", err)
+	var control webbot.RobotControl
+	if err := json.Unmarshal([]byte(e.Event), &control); err != nil {
+		c.logErrorf("Failed to decode command: %v\n", err)
 		return
 	}
 
-	c.logPrefixf("POWER", "%v,%v\n", p.Left, p.Right)
+	c.logPrefixf("COMMAND", "%v\n", control)
 
-	je, err := jsonEvent(TrackPower, p, c.userInfo())
+	je, err := jsonEvent(Command, control, c.userInfo())
 	if err != nil {
 		c.logErrorf("Failed to create jsonEvent: %v", err)
 		return
