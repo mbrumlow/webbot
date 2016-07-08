@@ -12,8 +12,7 @@ type textBot struct {
 func main() {
 
 	r := textBot{}
-	wb := webbot.New("ws://localhost:8080/robot", &r)
-
+	wb := webbot.New("ws://localhost:8080/robot", "/dev/video0", &r)
 	wb.Run()
 }
 

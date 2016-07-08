@@ -1,8 +1,13 @@
 package webbot
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
+	"net"
+	"os/exec"
+	"sync"
 
 	"golang.org/x/net/websocket"
 )
@@ -34,6 +39,12 @@ const (
 	StopVideo
 )
 
+const (
+	Signal = 1 << iota
+	TrackPower
+	Video
+)
+
 type RobotEvent struct {
 	Type  RobotCommand
 	Event string
@@ -42,10 +53,17 @@ type RobotEvent struct {
 type WebBot struct {
 	controlUrl string
 	robot      Robot
+	videoDev   string
+
+	// Video related stuff.
+	mu               sync.Mutex
+	ln               net.Listener
+	cmd              *exec.Cmd
+	keepVideoRunning bool
 }
 
-func New(controlUrl string, robot Robot) WebBot {
-	return WebBot{controlUrl: controlUrl, robot: robot}
+func New(controlUrl string, videoDev string, robot Robot) WebBot {
+	return WebBot{controlUrl: controlUrl, robot: robot, videoDev: videoDev}
 }
 
 func (wb *WebBot) Run() error {
@@ -65,7 +83,7 @@ func (wb *WebBot) Run() error {
 			return fmt.Errorf("Error reciving event: %v", err.Error())
 		}
 
-		if err := wb.handleEvent(ev); err != nil {
+		if err := wb.handleEvent(ws, ev); err != nil {
 			return fmt.Errorf("Error handling event: %v", err.Error())
 		}
 	}
@@ -73,15 +91,15 @@ func (wb *WebBot) Run() error {
 	return nil
 }
 
-func (wb *WebBot) handleEvent(ev RobotEvent) error {
+func (wb *WebBot) handleEvent(ws *websocket.Conn, ev RobotEvent) error {
 
 	switch ev.Type {
 	case Command:
 		return wb.handleCommand(ev.Event)
 	case StartVideo:
-		return wb.robot.StartVideo()
+		return wb.StartVideo(ws)
 	case StopVideo:
-		return wb.robot.StopVideo()
+		return wb.StopVideo()
 	}
 
 	return fmt.Errorf("Unknown command: %v\n", ev.Type)
@@ -109,6 +127,127 @@ func (wb *WebBot) handleCommand(e string) error {
 	}
 
 	return fmt.Errorf("Unknown contro: %v\n", control)
+}
+
+func (wb *WebBot) StartVideo(ws *websocket.Conn) error {
+
+	wb.mu.Lock()
+	defer wb.mu.Unlock()
+
+	wb.keepVideoRunning = true
+
+	ready := make(chan bool, 1)
+	go wb.runVideoServer(ws, ready)
+	<-ready
+
+	go wb.keepRunning()
+
+	return nil
+}
+
+func (wb *WebBot) StopVideo() error {
+
+	wb.mu.Lock()
+	defer wb.mu.Unlock()
+
+	wb.keepVideoRunning = false
+
+	if wb.cmd != nil {
+		wb.cmd.Process.Kill()
+		wb.cmd = nil
+	}
+
+	if wb.ln != nil {
+		wb.ln.Close()
+	}
+
+	return nil
+}
+
+func (wb *WebBot) keepRunning() {
+
+	for {
+		wb.mu.Lock()
+
+		if !wb.keepVideoRunning {
+			wb.mu.Unlock()
+			return
+		}
+
+		wb.cmd = exec.Command(
+			"ffmpeg", "-s", "640x480", "-f", "video4linux2",
+			"-i", wb.videoDev, "-f", "mpeg1video",
+			"-r", "30", fmt.Sprintf("tcp://%v", wb.ln.Addr().String()))
+		wb.mu.Unlock()
+
+		if err := wb.cmd.Run(); err != nil {
+			log.Printf("Video error: %v\n", err.Error())
+		}
+	}
+
+}
+
+func (wb *WebBot) runVideoServer(ws *websocket.Conn, ready chan bool) error {
+
+	ln, err := net.Listen("tcp", ":0")
+	if err != nil {
+		return fmt.Errorf("Faied to bind to port: %v", err.Error())
+	}
+
+	wb.ln = ln
+	ready <- true
+
+	// Non obvious, we really only want one connection...
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			return fmt.Errorf("Failed to accept connection: %v", err.Error())
+			continue
+		}
+
+		if err := wb.handleConnection(ws, conn); err != nil {
+			return err
+		}
+	}
+
+}
+
+func (wb *WebBot) handleConnection(ws *websocket.Conn, src net.Conn) error {
+
+	defer src.Close()
+
+	buf := make([]byte, 1024)
+
+	for {
+		size, err := src.Read(buf)
+		if err != nil {
+			log.Printf("Video recive error: %v\n", err.Error())
+			break
+		}
+
+		if err := wb.videoToWS(ws, buf[0:size]); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (wb *WebBot) videoToWS(ws *websocket.Conn, data []byte) error {
+
+	// KILL ME NOW.
+	// TODO - Lets not piggy back off the websocket. Lets make a real
+	// tcp connection so we don't have to do this silly mess.
+
+	encoded := base64.StdEncoding.EncodeToString(data)
+
+	event := RobotEvent{Type: Video, Event: encoded}
+
+	if err := websocket.JSON.Send(ws, &event); err != nil {
+		return fmt.Errorf("Failed to send video to controler: %v", err.Error())
+	}
+
+	return nil
 }
 
 func (c RobotControl) String() string {
