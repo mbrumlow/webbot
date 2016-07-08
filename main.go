@@ -37,7 +37,7 @@ const (
 	Command
 	Video
 	StartVideo
-	EndVideo
+	StopVideo
 	ActionEvent
 	ChatEvent
 	RegisterEvent
@@ -150,7 +150,10 @@ func main() {
 	go chatDispatcher()
 	go eventFlusher(events, flush)
 
-	http.Handle("/video", websocket.Handler(clientVideoHandler))
+	http.Handle("/video", websocket.Handler(func(ws *websocket.Conn) {
+		clientVideoHandler(ws, events)
+	}))
+
 	http.Handle("/client", websocket.Handler(func(ws *websocket.Conn) {
 		clientHandler(ws, events)
 	}))
@@ -177,9 +180,10 @@ func eventFlusher(events chan JsonEvent, flush chan bool) {
 	}
 }
 
-func handleRobotEvents(ws *websocket.Conn) {
+func handleRobotEvents(ws *websocket.Conn, ready chan bool) {
 
 	defer ws.Close()
+	defer close(ready)
 
 	for {
 		var ev JsonEvent
@@ -499,30 +503,55 @@ func wsValidateName(ws *websocket.Conn, name string) (bool, error) {
 
 func robotHandler(ws *websocket.Conn, events chan JsonEvent, flush chan bool) {
 
+	log.Printf("Robot connected.")
+	defer log.Printf("Robot disconnected.")
+
 	// For now we will only support one robot, in the future as we connect
 	// new robots we will generate a new namespace for each robot.
 
 	// TODO - validate robot has access to this server.
 	// TODO - make sure we are the only robot, reject others!
 
+	// Enable flusher.
 	flush <- false
 	defer func() {
+		// TODO - Fix race condtion if robot reconnects before this is run.
 		flush <- true
 	}()
 
-	go handleRobotEvents(ws)
+	ready := make(chan bool, 1)
+	go handleRobotEvents(ws, ready)
+
+	// Not happy about this, but for now it will do.
+	go func() {
+		clientMu.Lock()
+		defer clientMu.Unlock()
+		if len(videoClients) == 1 {
+			event := JsonEvent{Type: StartVideo}
+			events <- event
+		} else if len(videoClients) == 0 {
+			event := JsonEvent{Type: StopVideo}
+			events <- event
+		}
+	}()
 
 	for {
-		event := <-events
-		if rb, ok := webEventToRobotEvent(event); ok {
-			if err := websocket.JSON.Send(ws, &rb); err != nil {
-				log.Printf("ERROR: Failed to send event to robot: %v.\n", err.Error())
-				break
+		select {
+		case event := <-events:
+			if rb, ok := webEventToRobotEvent(event); ok {
+				if err := websocket.JSON.Send(ws, &rb); err != nil {
+					log.Printf("ERROR: Failed to send event to robot: %v.\n", err.Error())
+					return
+				}
+			} else {
+				log.Printf("Dropping unknown robot event: %v\n", event.Type)
 			}
-		} else {
-			log.Printf("Dropping unknown robot event: %v\n", event.Type)
+			sendEventToClient(event)
+		case _, ok := <-ready:
+			if !ok {
+				return
+			}
 		}
-		sendEventToClient(event)
 	}
 
 }
@@ -532,6 +561,10 @@ func webEventToRobotEvent(je JsonEvent) (webbot.RobotEvent, bool) {
 	switch je.Type {
 	case Command:
 		return webbot.RobotEvent{Type: webbot.Command, Event: je.Event}, true
+	case StartVideo:
+		return webbot.RobotEvent{Type: webbot.StartVideo, Event: je.Event}, true
+	case StopVideo:
+		return webbot.RobotEvent{Type: webbot.StopVideo, Event: je.Event}, true
 	}
 
 	return webbot.RobotEvent{}, false
@@ -594,6 +627,8 @@ func clientHandler(ws *websocket.Conn, events chan JsonEvent) {
 			}
 		}
 	}
+
+	defer delClient(client)
 
 	client.logInfof("Authenticated: %v", client.Token)
 
@@ -822,7 +857,9 @@ func sendAll(je JsonEvent) {
 	}
 }
 
-func clientVideoHandler(ws *websocket.Conn) {
+func clientVideoHandler(ws *websocket.Conn, events chan JsonEvent) {
+
+	defer ws.Close()
 
 	if err := sendJSMPHeader(ws); err != nil {
 		log.Printf("INFO: Video client ended: %v.\n", err.Error())
@@ -830,31 +867,61 @@ func clientVideoHandler(ws *websocket.Conn) {
 	}
 
 	videoChan := make(chan []byte, maxVideo)
-	addVideoClient(videoChan, ws)
-	defer removeVideoClient(videoChan)
+	addVideoClient(videoChan, ws, events)
+	defer removeVideoClient(videoChan, events)
 
 	wsLogInfo(ws, "Video client connected.")
 	defer wsLogInfo(ws, "Video client disconnected.")
 
+	endChan := make(chan bool, 1)
+
+	// HACK HACK HACK HACK
+	// TODO - Remove this
+	go func() {
+		defer close(endChan)
+		for {
+			data := make([]byte, 1)
+			if err := websocket.Message.Receive(ws, data); err != nil {
+				return
+			}
+		}
+	}()
+
 	for {
-		data := <-videoChan
-		if err := websocket.Message.Send(ws, data); err != nil {
-			wsLogError(ws, err.Error())
-			return
+		select {
+		case data := <-videoChan:
+			if err := websocket.Message.Send(ws, data); err != nil {
+				wsLogError(ws, err.Error())
+				return
+			}
+		case _, ok := <-endChan:
+			if !ok {
+				return
+			}
 		}
 	}
 }
 
-func addVideoClient(v chan []byte, ws *websocket.Conn) {
+func addVideoClient(v chan []byte, ws *websocket.Conn, events chan JsonEvent) {
 	clientMu.Lock()
 	defer clientMu.Unlock()
 	videoClients[v] = ws
+
+	if len(videoClients) == 1 {
+		event := JsonEvent{Type: StartVideo}
+		events <- event
+	}
 }
 
-func removeVideoClient(v chan []byte) {
+func removeVideoClient(v chan []byte, events chan JsonEvent) {
 	clientMu.Lock()
 	defer clientMu.Unlock()
 	delete(videoClients, v)
+
+	if len(videoClients) == 0 {
+		event := JsonEvent{Type: StopVideo}
+		events <- event
+	}
 }
 
 func sendJSMPHeader(ws *websocket.Conn) error {
