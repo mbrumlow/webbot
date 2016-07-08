@@ -526,10 +526,10 @@ func robotHandler(ws *websocket.Conn, events chan JsonEvent, flush chan bool) {
 	go func() {
 		clientMu.Lock()
 		defer clientMu.Unlock()
-		if len(videoClients) == 1 {
+		if len(videoClients) > 0 {
 			event := JsonEvent{Type: StartVideo}
 			events <- event
-		} else if len(videoClients) == 0 {
+		} else {
 			event := JsonEvent{Type: StopVideo}
 			events <- event
 		}
