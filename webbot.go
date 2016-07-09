@@ -56,10 +56,10 @@ type WebBot struct {
 	videoDev   string
 
 	// Video related stuff.
-	mu               sync.Mutex
-	ln               net.Listener
-	cmd              *exec.Cmd
-	keepVideoRunning bool
+	mu           sync.Mutex
+	ln           net.Listener
+	cmd          *exec.Cmd
+	videoRunning bool
 }
 
 func New(controlUrl string, videoDev string, robot Robot) WebBot {
@@ -80,7 +80,7 @@ func (wb *WebBot) Run() error {
 	for {
 		var ev RobotEvent
 		if err := websocket.JSON.Receive(ws, &ev); err != nil {
-			return fmt.Errorf("Error reciving event: %v", err.Error())
+			return fmt.Errorf("Error receiving event: %v", err.Error())
 		}
 
 		if err := wb.handleEvent(ws, ev); err != nil {
@@ -126,15 +126,20 @@ func (wb *WebBot) handleCommand(e string) error {
 		return wb.robot.Backward()
 	}
 
-	return fmt.Errorf("Unknown contro: %v\n", control)
+	return fmt.Errorf("Unknown control: %v\n", control)
 }
 
 func (wb *WebBot) StartVideo(ws *websocket.Conn) error {
 
+	log.Printf("Starting video.\n")
 	wb.mu.Lock()
 	defer wb.mu.Unlock()
 
-	wb.keepVideoRunning = true
+	if wb.videoRunning {
+		return nil
+	}
+
+	wb.videoRunning = true
 
 	ready := make(chan bool, 1)
 	go wb.runVideoServer(ws, ready)
@@ -147,10 +152,17 @@ func (wb *WebBot) StartVideo(ws *websocket.Conn) error {
 
 func (wb *WebBot) StopVideo() error {
 
+	// If there is no video it might be a good idea to stop.
+	// I will have to think about the location of this logic, I don't like it.
+	if err := wb.robot.Stop(); err != nil {
+		return err
+	}
+
+	log.Printf("Stopping video.\n")
 	wb.mu.Lock()
 	defer wb.mu.Unlock()
 
-	wb.keepVideoRunning = false
+	wb.videoRunning = false
 
 	if wb.cmd != nil {
 		wb.cmd.Process.Kill()
@@ -166,12 +178,19 @@ func (wb *WebBot) StopVideo() error {
 
 func (wb *WebBot) keepRunning() {
 
+	first := true
 	for {
 		wb.mu.Lock()
 
-		if !wb.keepVideoRunning {
+		if !wb.videoRunning {
 			wb.mu.Unlock()
 			return
+		}
+
+		if !first {
+			log.Printf("Restarting video.\n")
+		} else {
+			first = false
 		}
 
 		wb.cmd = exec.Command(
@@ -191,7 +210,7 @@ func (wb *WebBot) runVideoServer(ws *websocket.Conn, ready chan bool) error {
 
 	ln, err := net.Listen("tcp", ":0")
 	if err != nil {
-		return fmt.Errorf("Faied to bind to port: %v", err.Error())
+		return fmt.Errorf("Failed to bind to port: %v", err.Error())
 	}
 
 	wb.ln = ln
@@ -244,7 +263,7 @@ func (wb *WebBot) videoToWS(ws *websocket.Conn, data []byte) error {
 	event := RobotEvent{Type: Video, Event: encoded}
 
 	if err := websocket.JSON.Send(ws, &event); err != nil {
-		return fmt.Errorf("Failed to send video to controler: %v", err.Error())
+		return fmt.Errorf("Failed to send video to controller: %v", err.Error())
 	}
 
 	return nil
