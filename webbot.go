@@ -54,6 +54,7 @@ type WebBot struct {
 	controlUrl string
 	robot      Robot
 	videoDev   string
+	pass       string
 
 	// Video related stuff.
 	mu           sync.Mutex
@@ -62,8 +63,8 @@ type WebBot struct {
 	videoRunning bool
 }
 
-func New(controlUrl string, videoDev string, robot Robot) WebBot {
-	return WebBot{controlUrl: controlUrl, robot: robot, videoDev: videoDev}
+func New(controlUrl, videoDev, pass string, robot Robot) WebBot {
+	return WebBot{controlUrl: controlUrl, pass: pass, robot: robot, videoDev: videoDev}
 }
 
 func (wb *WebBot) Run() error {
@@ -76,6 +77,20 @@ func (wb *WebBot) Run() error {
 		return fmt.Errorf("Error connecting: %v", err.Error())
 	}
 	defer ws.Close()
+
+	// Authenticate -- this will improve, this is just to keep the honest people honest.
+	if err := websocket.JSON.Send(ws, &wb.pass); err != nil {
+		return fmt.Errorf("Failed to send password: %v", err.Error())
+	}
+
+	var ok string
+	if err := websocket.JSON.Receive(ws, &ok); err != nil {
+		return fmt.Errorf("Failed to receive ok from rwc: %v\n", err.Error())
+	}
+
+	if ok != "OK" {
+		return fmt.Errorf("Password error!")
+	}
 
 	for {
 		var ev RobotEvent
