@@ -131,6 +131,7 @@ var (
 
 var robothostport = flag.String("host", "", "host port of dartbot.")
 var dataDir = flag.String("data", "data", "Data directory.")
+var pass = flag.String("pass", "", "Robot control password.")
 
 func main() {
 
@@ -510,6 +511,28 @@ func robotHandler(ws *websocket.Conn, events chan JsonEvent, flush chan bool) {
 	// new robots we will generate a new namespace for each robot.
 
 	// TODO - validate robot has access to this server.
+
+	var password string
+	if err := websocket.JSON.Receive(ws, &password); err != nil {
+		log.Printf("ERROR: failed to receive password from robot: %v\n", err.Error())
+		return
+	}
+
+	var ok = "NOTOK"
+	if password == *pass {
+		ok = "OK"
+	}
+
+	if err := websocket.JSON.Send(ws, &ok); err != nil {
+		log.Printf("Failed to send password: %v", err.Error())
+		return
+	}
+
+	if password != *pass {
+		log.Printf("Password failure.")
+		return
+	}
+
 	// TODO - make sure we are the only robot, reject others!
 
 	// Enable flusher.
