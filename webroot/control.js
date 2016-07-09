@@ -36,13 +36,16 @@ function createWebSocket() {
 
 		if( username.length > 0  && authToken.length > 0 ) {
 
+			autoAuth(); 
+
 			ws.send(JSON.stringify({
 				Name: username,
 				Token: authToken,
 			}));
 
-			autoAuth(); 
-		}
+		} else {
+            needName();   
+        }
 
 	};  
 
@@ -97,10 +100,31 @@ function createWebSocket() {
 }
 
 function autoAuth() {
-    document.getElementById('authScreen').className = 'hidden';    
-    document.getElementById('authInput').className = 'hidden';
+    
+    document.getElementById('authScreen').className = 'visible';    
+    document.getElementById('authLoading').className = 'visible';
+    document.getElementById('authInput').className = 'visible';
+    document.getElementById('authName').className = 'hidden';
+    document.getElementById('authPass').className = 'hidden';
+    document.getElementById('authRegister').className = 'hidden';
     document.getElementById('authErrorInUse').className = 'authError hidden';
     document.getElementById('AuthErrorBadPass').className = 'authError hidden';
+    document.getElementById('AuthErrorBadName').className = 'authError hidden';
+
+    authenticated = false; 
+}
+
+function needName() {
+    
+    document.getElementById('authScreen').className = 'visible';    
+    document.getElementById('authLoading').className = 'hidden';
+    document.getElementById('authInput').className = 'visible';
+    document.getElementById('authName').className = 'visible';
+    document.getElementById('authPass').className = 'hidden';
+    document.getElementById('authRegister').className = 'hidden';
+    document.getElementById('authErrorInUse').className = 'authError hidden';
+    document.getElementById('AuthErrorBadPass').className = 'authError hidden';
+    document.getElementById('AuthErrorBadName').className = 'authError hidden';
 
     authenticated = false; 
 }
@@ -110,6 +134,7 @@ function authOk(je) {
     token = JSON.parse(je.Event);
 
     document.getElementById('authScreen').className = 'hidden';    
+    document.getElementById('authLoading').className = 'hidden';
     document.getElementById('authInput').className = 'hidden';
     document.getElementById('authName').className = 'hidden';
     document.getElementById('authPass').className = 'hidden';
@@ -121,11 +146,13 @@ function authOk(je) {
     setCookie("username", username);
 
     authenticated = true;
+
 }
 
 function authUserInUse() {
 
     document.getElementById('authScreen').className = 'visible';    
+    document.getElementById('authLoading').className = 'hidden';
     document.getElementById('authInput').className = 'visible';
     document.getElementById('authName').className = 'visible';
     document.getElementById('authPass').className = 'hidden';
@@ -140,6 +167,7 @@ function authUserInUse() {
 function authPassRequired() {
 
     document.getElementById('authScreen').className = 'visible';    
+    document.getElementById('authLoading').className = 'hidden';
     document.getElementById('authInput').className = 'visible';
     document.getElementById('authName').className = 'hidden';
     document.getElementById('authPass').className = 'visible';
@@ -154,6 +182,7 @@ function authPassRequired() {
 function authBadPass() {
 
     document.getElementById('authScreen').className = 'visible';    
+    document.getElementById('authLoading').className = 'hidden';
     document.getElementById('authInput').className = 'visible';
     document.getElementById('authName').className = 'hidden';
     document.getElementById('authPass').className = 'visible';
@@ -168,6 +197,7 @@ function authBadPass() {
 function authBadName() {
 
     document.getElementById('authScreen').className = 'visible';    
+    document.getElementById('authLoading').className = 'hidden';
     document.getElementById('authInput').className = 'visible';
     document.getElementById('authName').className = 'visible';
     document.getElementById('authPass').className = 'hidden';
@@ -182,6 +212,7 @@ function authBadName() {
 function authRegister() {
 
     document.getElementById('authScreen').className = 'visible';    
+    document.getElementById('authLoading').className = 'hidden';
     document.getElementById('authInput').className = 'visible';
     document.getElementById('authName').className = 'hidden';
     document.getElementById('authPass').className = 'hidden';
@@ -288,7 +319,8 @@ function insertEventSlow(je, ev, type) {
 	children = elem.children;
 
 	var node = document.createElement("div");
-	var textnode = document.createTextNode(ev.Time + ": " + je.UserInfo.Name  + " > " + ev.Action);
+	var textnode = document.createTextNode(ev.Time + ": " + je.UserInfo.Name.substring(0, 10)  + " > " + ev.Action);
+    node.title = je.UserInfo.Name;
 	node.setAttribute("chatIndex", ev.Id); 
 	node.appendChild(textnode); 
 
@@ -311,7 +343,8 @@ function insertEventFast(je, ev, type) {
 	var elem = document.getElementById(type);
 
 	var node = document.createElement("div");
-	var textnode = document.createTextNode(ev.Time + ": " + je.UserInfo.Name  + " > " + ev.Action);
+	var textnode = document.createTextNode(ev.Time + ": " + je.UserInfo.Name.substring(0, 10)  + " > " + ev.Action);
+    node.title = je.UserInfo.Name;
 	node.setAttribute("chatIndex", ev.Id); 
 	node.appendChild(textnode); 
 	
@@ -327,6 +360,8 @@ function sendName() {
     ws.send(JSON.stringify({
         Name: username,
     }));
+    
+    document.getElementById("nameInput").value = "";
 
     return false;
 
@@ -356,7 +391,9 @@ function sendPass() {
     ws.send(JSON.stringify({
         Pass: password,
     }));
-
+    
+    document.getElementById("passInput").value = ""; 
+    
     return false;
 
 }
@@ -443,6 +480,11 @@ function sendChat() {
         return;
 	}
 
+	if( document.getElementById("txtArea").value == "/logout" ) {
+        logOut();
+        document.getElementById("txtArea").value = '';
+        return;
+	}
 
 	var info = {};
 	info["Type"] = 64; // CHAT_EVENT
@@ -451,6 +493,15 @@ function sendChat() {
     ws.send(JSON.stringify(info));
     document.getElementById("txtArea").value = '';
     
+}
+
+function logOut() {
+    deleteCookie("username"); 
+    deleteCookie("authToken"); 
+    ws.close() 
+}
+function deleteCookie(cname) {
+    setCookie(cname, "", -1) 
 }
 
 function setCookie(cname, cvalue, exdays) {

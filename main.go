@@ -54,7 +54,7 @@ const (
 )
 
 // Auth sates
-// Used for authentiation flow control.
+// Used for authentication flow control.
 const (
 	authStateGetAuth = iota
 	authStateAdd
@@ -140,7 +140,7 @@ func main() {
 		log.Fatal("Failed to create data directory: %v\n", err.Error())
 	}
 
-	// Seed the chat number with the curren time.
+	// Seed the chat number with the current time.
 	startTime := time.Now().UnixNano() / int64(time.Millisecond)
 	atomic.StoreUint64(&chatNum, uint64(startTime))
 
@@ -188,7 +188,7 @@ func handleRobotEvents(ws *websocket.Conn, ready chan bool) {
 	for {
 		var ev JsonEvent
 		if err := websocket.JSON.Receive(ws, &ev); err != nil {
-			log.Printf("ERROR: failed to recive event from robot: %v\n", err.Error())
+			log.Printf("ERROR: failed to receive event from robot: %v\n", err.Error())
 			return
 		}
 
@@ -196,7 +196,7 @@ func handleRobotEvents(ws *websocket.Conn, ready chan bool) {
 		case Video:
 			decodeVideo(ev.Event)
 		default:
-			log.Println("ERROR: Recived unknown event (%v) from robot.\n", ev.Type)
+			log.Println("ERROR: Received unknown event (%v) from robot.\n", ev.Type)
 		}
 	}
 }
@@ -515,7 +515,7 @@ func robotHandler(ws *websocket.Conn, events chan JsonEvent, flush chan bool) {
 	// Enable flusher.
 	flush <- false
 	defer func() {
-		// TODO - Fix race condtion if robot reconnects before this is run.
+		// TODO - Fix race condition if robot reconnects before this is run.
 		flush <- true
 	}()
 
@@ -630,8 +630,6 @@ func clientHandler(ws *websocket.Conn, events chan JsonEvent) {
 
 	defer delClient(client)
 
-	client.logInfof("Authenticated: %v", client.Token)
-
 	if err := wsSendEvent(ws, AuthOK, client.Token); err != nil {
 		client.logErrorf(err.Error())
 		return
@@ -685,7 +683,7 @@ func (c *Client) handleEvent(je JsonEvent, events chan JsonEvent) {
 	case RegisterEvent:
 		c.handleRegisterEvent(je)
 	default:
-		c.logErrorf("Recived unknown event (%v)\n", je.Type)
+		c.logErrorf("Received unknown event (%v)\n", je.Type)
 	}
 
 }
@@ -826,12 +824,10 @@ func (c *Client) logErrorf(format string, a ...interface{}) {
 }
 
 func chatDispatcher() {
-
 	for {
 		je := <-chatChan
 		sendAll(je)
 	}
-
 }
 
 func sendToAll(je JsonEvent) {
@@ -936,14 +932,6 @@ func sendJSMPHeader(ws *websocket.Conn) error {
 	}
 
 	return nil
-}
-
-func fixName(name string) string {
-	if len(name) > 8 {
-		return name[0:8]
-	}
-	name = name + strings.Repeat(" ", 8-len(name))
-	return name
 }
 
 // TODO -- fix this logging stuff, its nasty.
