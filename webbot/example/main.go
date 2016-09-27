@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	webbot "../"
+	"github.com/mbrumlow/webbot/webbot"
 )
 
 type textBot struct {

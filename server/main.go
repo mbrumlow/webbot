@@ -21,7 +21,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/mbrumlow/webbot"
+	"gopkg.in/mgo.v2/bson"
+
+	"github.com/mbrumlow/webbot/webbot"
 
 	"golang.org/x/net/websocket"
 )
@@ -129,7 +131,6 @@ var (
 	passMu sync.RWMutex
 )
 
-var robothostport = flag.String("host", "", "host port of dartbot.")
 var dataDir = flag.String("data", "data", "Data directory.")
 var pass = flag.String("pass", "", "Robot control password.")
 
@@ -145,11 +146,9 @@ func main() {
 	startTime := time.Now().UnixNano() / int64(time.Millisecond)
 	atomic.StoreUint64(&chatNum, uint64(startTime))
 
-	events := make(chan JsonEvent, 1000)
-	flush := make(chan bool, 1)
+	events := make(chan JsonEvent, 0)
 
 	go chatDispatcher()
-	go eventFlusher(events, flush)
 
 	http.Handle("/video", websocket.Handler(func(ws *websocket.Conn) {
 		clientVideoHandler(ws, events)
@@ -160,7 +159,7 @@ func main() {
 	}))
 
 	http.Handle("/robot", websocket.Handler(func(ws *websocket.Conn) {
-		robotHandler(ws, events, flush)
+		robotHandler(ws, events)
 	}))
 
 	fs := http.FileServer(http.Dir("webroot"))
@@ -169,48 +168,31 @@ func main() {
 
 }
 
-func eventFlusher(events chan JsonEvent, flush chan bool) {
-	for {
-		select {
-		case ok := <-flush:
-			for !ok {
-				ok = <-flush
-			}
-		case <-events:
-		}
-	}
-}
-
 func handleRobotEvents(ws *websocket.Conn, ready chan bool) {
 
 	defer ws.Close()
 	defer close(ready)
 
 	for {
-		var ev JsonEvent
-		if err := websocket.JSON.Receive(ws, &ev); err != nil {
+		data := make([]byte, 0)
+		if err := websocket.Message.Receive(ws, &data); err != nil {
 			log.Printf("ERROR: failed to receive event from robot: %v\n", err.Error())
 			return
 		}
 
-		switch ev.Type {
+		var rb webbot.RobotEvent
+		if err := bson.Unmarshal(data, &rb); err != nil {
+			log.Printf("ERROR: failed to decode event from robot: %v\n", err.Error())
+			return
+		}
+
+		switch rb.Type {
 		case Video:
-			decodeVideo(ev.Event)
+			sendVideoToClients(rb.Event)
 		default:
-			log.Println("ERROR: Received unknown event (%v) from robot.\n", ev.Type)
+			log.Println("ERROR: Received unknown event (%v) from robot.\n", rb.Type)
 		}
 	}
-}
-
-func decodeVideo(s string) {
-
-	decoded, err := base64.StdEncoding.DecodeString(s)
-	if err != nil {
-		log.Printf("ERROR: Failed to decode video buffer: %v\n", err.Error())
-		return
-	}
-
-	sendVideoToClients(decoded)
 }
 
 func sendVideoToClients(d []byte) {
@@ -236,8 +218,11 @@ func sendEventToClient(ev JsonEvent) {
 	switch ev.Type {
 	case Command:
 		commandEvent(ev.UserInfo, []byte(ev.Event))
+	case StartVideo:
+	case StopVideo:
+		break
 	default:
-		log.Printf("ERROR: Not sending unknown event type (%v) to server.\n", ev.Type)
+		log.Printf("ERROR: Not sending unknown event type (%v) to client.\n", ev.Type)
 	}
 
 }
@@ -502,50 +487,50 @@ func wsValidateName(ws *websocket.Conn, name string) (bool, error) {
 	return false, nil
 }
 
-func robotHandler(ws *websocket.Conn, events chan JsonEvent, flush chan bool) {
-
-	log.Printf("Robot connected.")
-	defer log.Printf("Robot disconnected.")
-
-	// For now we will only support one robot, in the future as we connect
-	// new robots we will generate a new namespace for each robot.
+func authRobot(ws *websocket.Conn) bool {
 
 	// TODO - validate robot has access to this server.
+	// TODO - make sure we are the only robot, reject others!
 
 	var password string
 	if err := websocket.JSON.Receive(ws, &password); err != nil {
 		log.Printf("ERROR: failed to receive password from robot: %v\n", err.Error())
-		return
+		return false
 	}
 
-	var ok = "NOTOK"
+	var ok = "NOT_OK"
 	if password == *pass {
 		ok = "OK"
 	}
 
 	if err := websocket.JSON.Send(ws, &ok); err != nil {
 		log.Printf("Failed to send password: %v", err.Error())
+		return false
+	}
+
+	if password == *pass {
+		return true
+	}
+
+	log.Printf("Password failure.")
+	return false
+}
+
+func robotHandler(ws *websocket.Conn, events chan JsonEvent) {
+
+	log.Printf("Robot connected.")
+	defer log.Printf("Robot disconnected.")
+
+	// Authenticate robot.
+	if !authRobot(ws) {
 		return
 	}
 
-	if password != *pass {
-		log.Printf("Password failure.")
-		return
-	}
-
-	// TODO - make sure we are the only robot, reject others!
-
-	// Enable flusher.
-	flush <- false
-	defer func() {
-		// TODO - Fix race condition if robot reconnects before this is run.
-		flush <- true
-	}()
+	log.Printf("Robot authenticated.")
 
 	ready := make(chan bool, 1)
 	go handleRobotEvents(ws, ready)
 
-	// Not happy about this, but for now it will do.
 	go func() {
 		clientMu.Lock()
 		defer clientMu.Unlock()
@@ -562,9 +547,14 @@ func robotHandler(ws *websocket.Conn, events chan JsonEvent, flush chan bool) {
 		select {
 		case event := <-events:
 			if rb, ok := webEventToRobotEvent(event); ok {
-				if err := websocket.JSON.Send(ws, &rb); err != nil {
-					log.Printf("ERROR: Failed to send event to robot: %v.\n", err.Error())
+				if data, err := bson.Marshal(&rb); err != nil {
+					log.Printf("ERROR: failed to marshal robot event: %v\n", err.Error())
 					return
+				} else {
+					if err := websocket.Message.Send(ws, data); err != nil {
+						log.Printf("ERROR: Failed to send event to robot: %v.\n", err.Error())
+						return
+					}
 				}
 			} else {
 				log.Printf("Dropping unknown robot event: %v\n", event.Type)
@@ -583,11 +573,11 @@ func webEventToRobotEvent(je JsonEvent) (webbot.RobotEvent, bool) {
 
 	switch je.Type {
 	case Command:
-		return webbot.RobotEvent{Type: webbot.Command, Event: je.Event}, true
+		return webbot.RobotEvent{Type: webbot.Command, Event: []byte(je.Event)}, true
 	case StartVideo:
-		return webbot.RobotEvent{Type: webbot.StartVideo, Event: je.Event}, true
+		return webbot.RobotEvent{Type: webbot.StartVideo, Event: []byte(je.Event)}, true
 	case StopVideo:
-		return webbot.RobotEvent{Type: webbot.StopVideo, Event: je.Event}, true
+		return webbot.RobotEvent{Type: webbot.StopVideo, Event: []byte(je.Event)}, true
 	}
 
 	return webbot.RobotEvent{}, false
@@ -810,7 +800,11 @@ func (c *Client) handleCommandEvent(e JsonEvent, events chan JsonEvent) {
 		return
 	}
 
-	events <- je
+	select {
+	case events <- je:
+	default:
+		c.logPrefixf("SKIPPING", "command buffer full!\n")
+	}
 }
 
 func (c *Client) logPrefixf(prefix, format string, a ...interface{}) {
@@ -864,7 +858,7 @@ func sendAll(je JsonEvent) {
 
 	for _, m := range clients {
 		for c, _ := range m {
-			if len(c.To) > maxEvents-(maxEvents/10) {
+			if len(c.To) > maxEvents-1 {
 				c.logErrorf("Dropping events!")
 				// TODO: notify the client that some events were dropped.
 				for len(c.To) != 0 {

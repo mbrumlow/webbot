@@ -1,13 +1,14 @@
 package webbot
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net"
 	"os/exec"
 	"sync"
+
+	"gopkg.in/mgo.v2/bson"
 
 	"golang.org/x/net/websocket"
 )
@@ -47,7 +48,7 @@ const (
 
 type RobotEvent struct {
 	Type  RobotCommand
-	Event string
+	Event []byte
 }
 
 type WebBot struct {
@@ -78,6 +79,31 @@ func (wb *WebBot) Run() error {
 	}
 	defer ws.Close()
 
+	if err := wb.authenticate(ws); err != nil {
+		return fmt.Errorf("Failed to authenticate: %v", err.Error())
+	}
+
+	for {
+		data := make([]byte, 0)
+		if err := websocket.Message.Receive(ws, &data); err != nil {
+			return fmt.Errorf("Error receiving event: %v", err.Error())
+		}
+
+		var rb RobotEvent
+		if err := bson.Unmarshal(data, &rb); err != nil {
+			return fmt.Errorf("Error decoding event: %v", err.Error())
+		}
+
+		if err := wb.handleEvent(ws, rb); err != nil {
+			return fmt.Errorf("Error handling event: %v", err.Error())
+		}
+	}
+
+	return nil
+}
+
+func (wb *WebBot) authenticate(ws *websocket.Conn) error {
+
 	// Authenticate -- this will improve, this is just to keep the honest people honest.
 	if err := websocket.JSON.Send(ws, &wb.pass); err != nil {
 		return fmt.Errorf("Failed to send password: %v", err.Error())
@@ -90,17 +116,6 @@ func (wb *WebBot) Run() error {
 
 	if ok != "OK" {
 		return fmt.Errorf("Password error!")
-	}
-
-	for {
-		var ev RobotEvent
-		if err := websocket.JSON.Receive(ws, &ev); err != nil {
-			return fmt.Errorf("Error receiving event: %v", err.Error())
-		}
-
-		if err := wb.handleEvent(ws, ev); err != nil {
-			return fmt.Errorf("Error handling event: %v", err.Error())
-		}
 	}
 
 	return nil
@@ -120,12 +135,11 @@ func (wb *WebBot) handleEvent(ws *websocket.Conn, ev RobotEvent) error {
 	return fmt.Errorf("Unknown command: %v\n", ev.Type)
 }
 
-func (wb *WebBot) handleCommand(e string) error {
+func (wb *WebBot) handleCommand(e []byte) error {
 
 	var control RobotControl
-	if err := json.Unmarshal([]byte(e), &control); err != nil {
+	if err := json.Unmarshal(e, &control); err != nil {
 		return fmt.Errorf("Failed to unmarshal command: %v\n", err.Error())
-
 	}
 
 	switch control {
@@ -269,16 +283,14 @@ func (wb *WebBot) handleConnection(ws *websocket.Conn, src net.Conn) error {
 
 func (wb *WebBot) videoToWS(ws *websocket.Conn, data []byte) error {
 
-	// KILL ME NOW.
-	// TODO - Lets not piggy back off the websocket. Lets make a real
-	// tcp connection so we don't have to do this silly mess.
+	rb := RobotEvent{Type: Video, Event: data}
 
-	encoded := base64.StdEncoding.EncodeToString(data)
-
-	event := RobotEvent{Type: Video, Event: encoded}
-
-	if err := websocket.JSON.Send(ws, &event); err != nil {
-		return fmt.Errorf("Failed to send video to controller: %v", err.Error())
+	if data, err := bson.Marshal(&rb); err != nil {
+		return fmt.Errorf("Failed to encode robot event: %v\n", err.Error())
+	} else {
+		if err := websocket.Message.Send(ws, data); err != nil {
+			return fmt.Errorf("Failed to send video to controller: %v", err.Error())
+		}
 	}
 
 	return nil
