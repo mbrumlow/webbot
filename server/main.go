@@ -755,9 +755,6 @@ func (c *Client) handleChatEvent(e JsonEvent) {
 func (c *Client) handleRegisterEvent(e JsonEvent) {
 
 	// TODO - validate password.
-
-	fmt.Printf("REGISTER EVENT: %v\n", e)
-
 	// TODO - handle this without a global lock.
 	passMu.Lock()
 	passMu.Unlock()
