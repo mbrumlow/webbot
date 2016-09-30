@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"container/list"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
@@ -25,6 +24,7 @@ import (
 
 	"github.com/mbrumlow/webbot/webbot"
 
+	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/net/websocket"
 )
 
@@ -101,10 +101,10 @@ type Client struct {
 	From          chan JsonEvent
 	Name          string
 	Active        bool
-	Admin         bool
 	Token         string
 	ws            *websocket.Conn
 	authenticated bool
+	Admin         bool
 }
 
 type UserInfo struct {
@@ -113,8 +113,9 @@ type UserInfo struct {
 }
 
 type User struct {
-	Name string
-	Pass string
+	Name  string
+	Admin bool
+	Pass  string
 }
 
 var (
@@ -143,6 +144,10 @@ func main() {
 
 	if err := os.MkdirAll(*dataDir, 0700); err != nil {
 		log.Fatal("Failed to create data directory: %v\n", err.Error())
+	}
+
+	if err := os.MkdirAll(filepath.Join(*dataDir, "users"), 0700); err != nil {
+		log.Fatal("Failed to create data/users directory: %v\n", err.Error())
 	}
 
 	// Seed the chat number with the current time.
@@ -309,10 +314,6 @@ func wsAuthClient(ws *websocket.Conn, c *Client, pass string) (bool, error) {
 	passMu.RLock()
 	passMu.RUnlock()
 
-	sha_256 := sha256.New()
-	sha_256.Write([]byte(pass))
-	ciphertext := hex.EncodeToString(sha_256.Sum(nil))
-
 	userFile := filepath.Join(*dataDir, "users", c.Name)
 
 	b, err := ioutil.ReadFile(userFile)
@@ -325,8 +326,16 @@ func wsAuthClient(ws *websocket.Conn, c *Client, pass string) (bool, error) {
 		return false, fmt.Errorf("Failed to unmarshal user file: %v", err.Error())
 	}
 
-	if user.Name == c.Name && user.Pass == ciphertext {
-		return true, nil
+	hash, err := hex.DecodeString(user.Pass)
+	if err != nil {
+		return false, err
+	}
+
+	if user.Name == c.Name {
+		if err := bcrypt.CompareHashAndPassword(hash, []byte(pass)); err == nil {
+			c.Admin = user.Admin
+			return true, nil
+		}
 	}
 
 	if err := wsSendEvent(ws, AuthBadPass, "Bad pass."); err != nil {
@@ -747,13 +756,21 @@ func (c *Client) handleRegisterEvent(e JsonEvent) {
 
 	// TODO - validate password.
 
+	fmt.Printf("REGISTER EVENT: %v\n", e)
+
 	// TODO - handle this without a global lock.
 	passMu.Lock()
 	passMu.Unlock()
 
-	sha_256 := sha256.New()
-	sha_256.Write([]byte(e.Event))
-	ciphertext := hex.EncodeToString(sha_256.Sum(nil))
+	hash, err := bcrypt.GenerateFromPassword([]byte(e.Event), 14)
+	if err != nil {
+		if err := wsSendEvent(c.ws, AuthError, "Internal authentication error."); err != nil {
+			c.logErrorf("Failed to register: %v\n", err.Error())
+		}
+		return
+	}
+
+	ciphertext := hex.EncodeToString(hash)
 
 	userFile := filepath.Join(*dataDir, "users", c.Name)
 
@@ -761,16 +778,14 @@ func (c *Client) handleRegisterEvent(e JsonEvent) {
 
 	b, err := json.Marshal(&user)
 	if err != nil {
-		if err := wsSendEvent(c.ws, AuthError, "Internal auth error."); err != nil {
-			c.logErrorf("Failed to register: %v\n", err.Error())
-		}
+		wsSendEvent(c.ws, AuthError, "Internal authentication error.")
+		c.logErrorf("Failed to register: %v\n", err.Error())
 		return
 	}
 
 	if err := ioutil.WriteFile(userFile, b, 0600); err != nil {
-		if err := wsSendEvent(c.ws, AuthError, "Internal auth error."); err != nil {
-			c.logErrorf("Failed to register: %v\n", err.Error())
-		}
+		wsSendEvent(c.ws, AuthError, "Internal authentication error.")
+		c.logErrorf("Failed to register: %v\n", err.Error())
 		return
 	}
 
