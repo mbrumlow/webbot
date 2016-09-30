@@ -101,6 +101,7 @@ type Client struct {
 	From          chan JsonEvent
 	Name          string
 	Active        bool
+	Admin         bool
 	Token         string
 	ws            *websocket.Conn
 	authenticated bool
@@ -130,6 +131,8 @@ var (
 
 	passMu sync.RWMutex
 )
+
+var robotEnabled int32
 
 var dataDir = flag.String("data", "data", "Data directory.")
 var pass = flag.String("pass", "", "Robot control password.")
@@ -546,6 +549,7 @@ func robotHandler(ws *websocket.Conn, events chan JsonEvent) {
 	for {
 		select {
 		case event := <-events:
+
 			if rb, ok := webEventToRobotEvent(event); ok {
 				if data, err := bson.Marshal(&rb); err != nil {
 					log.Printf("ERROR: failed to marshal robot event: %v\n", err.Error())
@@ -779,11 +783,39 @@ func (c *Client) handleRegisterEvent(e JsonEvent) {
 
 func (c *Client) handleWebCommandEvent(e JsonEvent) {
 
-	// TODO - command handler.
+	// For now we only have admin level commands.
+
+	if !c.Admin {
+		return
+	}
+
+	switch e.Event {
+	case "/disable":
+		c.logPrefixf("WEB_COMMAND", "%v\n", e.Event)
+		atomic.StoreInt32(&robotEnabled, 0)
+	case "/enable":
+		c.logPrefixf("WEB_COMMAND", "%v\n", e.Event)
+		atomic.StoreInt32(&robotEnabled, 1)
+	default:
+		c.logPrefixf("WEB_COMMAND", "UNKNOWN:%v\n", e.Event)
+	}
 
 }
 
+func (c *Client) authCommandEvent(e JsonEvent) bool {
+
+	enabled := atomic.LoadInt32(&robotEnabled)
+	if enabled > 0 {
+		return true
+	}
+	return false
+}
+
 func (c *Client) handleCommandEvent(e JsonEvent, events chan JsonEvent) {
+
+	if !c.authCommandEvent(e) {
+		return
+	}
 
 	// Sanity check, decode and encode before sending it to the robot.
 	var control webbot.RobotControl
