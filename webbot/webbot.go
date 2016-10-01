@@ -52,11 +52,12 @@ type RobotEvent struct {
 }
 
 type WebBot struct {
-	controlUrl    string
-	robot         Robot
-	videoDev      string
-	pass          string
-	VideoBuffSize int
+	controlUrl     string
+	robot          Robot
+	videoDev       string
+	pass           string
+	VideoBuffSize  int
+	VideoPowerDown bool
 
 	// Video related stuff.
 	mu           sync.Mutex
@@ -67,11 +68,12 @@ type WebBot struct {
 
 func New(controlUrl, videoDev, pass string, robot Robot) WebBot {
 	return WebBot{
-		controlUrl:    controlUrl,
-		pass:          pass,
-		robot:         robot,
-		videoDev:      videoDev,
-		VideoBuffSize: 1024,
+		controlUrl:     controlUrl,
+		pass:           pass,
+		robot:          robot,
+		videoDev:       videoDev,
+		VideoBuffSize:  1024,
+		VideoPowerDown: true,
 	}
 }
 
@@ -192,6 +194,10 @@ func (wb *WebBot) StopVideo() error {
 	// I will have to think about the location of this logic, I don't like it.
 	if err := wb.robot.Stop(); err != nil {
 		return err
+	}
+
+	if !wb.VideoPowerDown {
+		return nil
 	}
 
 	log.Printf("Stopping video.\n")

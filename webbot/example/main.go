@@ -22,7 +22,7 @@ func main() {
 	r := textBot{}
 	wb := webbot.New(*host, *video, *pass, &r)
 	wb.VideoBuffSize = 512
-
+	wb.VideoPowerDown = false
 	for {
 		if err := wb.Run(); err != nil {
 			log.Printf("RUN ERROR: %v\n", err.Error())
