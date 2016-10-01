@@ -131,9 +131,11 @@ var (
 	chatNum uint64
 
 	passMu sync.RWMutex
-)
 
-var robotEnabled int32
+	permMu       sync.RWMutex
+	robotEnabled bool
+	godMode      = make(map[string]bool)
+)
 
 var dataDir = flag.String("data", "data", "Data directory.")
 var pass = flag.String("pass", "", "Robot control password.")
@@ -315,7 +317,6 @@ func wsAuthClient(ws *websocket.Conn, c *Client, pass string) (bool, error) {
 	passMu.RUnlock()
 
 	userFile := filepath.Join(*dataDir, "users", c.Name)
-
 	b, err := ioutil.ReadFile(userFile)
 	if err != nil {
 		return false, fmt.Errorf("Failed to read uesr file: %v", err.Error())
@@ -643,6 +644,7 @@ func clientHandler(ws *websocket.Conn, events chan JsonEvent) {
 				wsLogErrorf(ws, "Failed to get client pass: %v\n", err.Error())
 				return
 			} else {
+				wsLogInfo(ws, "Got password.")
 				if ok, err := wsAuthClient(ws, client, pass); err != nil {
 					wsLogErrorf(ws, "Failed to auth client: %v\n", err.Error())
 					return
@@ -795,19 +797,43 @@ func (c *Client) handleRegisterEvent(e JsonEvent) {
 
 func (c *Client) handleWebCommandEvent(e JsonEvent) {
 
-	// For now we only have admin level commands.
+	permMu.Lock()
+	defer permMu.Unlock()
 
+	// For now we only have admin level commands.
 	if !c.Admin {
 		return
 	}
 
-	switch e.Event {
+	command := strings.Split(e.Event, " ")
+	if len(command) < 1 {
+		return
+	}
+
+	switch command[0] {
 	case "/disable":
 		c.logPrefixf("WEB_COMMAND", "%v\n", e.Event)
-		atomic.StoreInt32(&robotEnabled, 0)
+		robotEnabled = false
+		return
 	case "/enable":
 		c.logPrefixf("WEB_COMMAND", "%v\n", e.Event)
-		atomic.StoreInt32(&robotEnabled, 1)
+		robotEnabled = true
+		return
+	case "/god":
+		if len(command) != 3 {
+			return
+		}
+
+		switch command[1] {
+		case "enable":
+			godMode[command[2]] = true
+		case "disable":
+			delete(godMode, command[2])
+		default:
+			c.logPrefixf("WEB_COMMAND", "invalid god argument '%v'.\n", command[1])
+		}
+
+		return
 	default:
 		c.logPrefixf("WEB_COMMAND", "UNKNOWN:%v\n", e.Event)
 	}
@@ -816,11 +842,15 @@ func (c *Client) handleWebCommandEvent(e JsonEvent) {
 
 func (c *Client) authCommandEvent(e JsonEvent) bool {
 
-	enabled := atomic.LoadInt32(&robotEnabled)
-	if enabled > 0 {
+	permMu.RLock()
+	defer permMu.RUnlock()
+
+	if _, ok := godMode[c.Name]; ok {
 		return true
 	}
-	return false
+
+	return robotEnabled
+
 }
 
 func (c *Client) handleCommandEvent(e JsonEvent, events chan JsonEvent) {

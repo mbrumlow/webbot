@@ -125,6 +125,9 @@ function needName() {
     document.getElementById('authErrorInUse').className = 'authError hidden';
     document.getElementById('AuthErrorBadPass').className = 'authError hidden';
     document.getElementById('AuthErrorBadName').className = 'authError hidden';
+    
+    document.getElementById("nameInput").value = ""; 
+    document.getElementById("nameInput").focus(); 
 
     authenticated = false; 
 }
@@ -175,7 +178,10 @@ function authPassRequired() {
     document.getElementById('authErrorInUse').className = 'authError hidden';
     document.getElementById('AuthErrorBadPass').className = 'authError hidden';
     document.getElementById('AuthErrorBadName').className = 'authError hidden';
-       
+
+    document.getElementById("passInput").value = ""; 
+    document.getElementById("passInput").focus(); 
+
     authenticated = false;
 }
 
@@ -190,6 +196,9 @@ function authBadPass() {
     document.getElementById('authErrorInUse').className = 'authError hidden';
     document.getElementById('AuthErrorBadPass').className = 'authError visible';
     document.getElementById('AuthErrorBadName').className = 'authError hidden';
+    
+    document.getElementById("passInput").value = ""; 
+    document.getElementById("passInput").focus(); 
        
     authenticated = false;
 }
@@ -205,6 +214,9 @@ function authBadName() {
     document.getElementById('authErrorInUse').className = 'authError hidden';
     document.getElementById('AuthErrorBadPass').className = 'authError hidden';
     document.getElementById('AuthErrorBadName').className = 'authError visible';
+    
+    document.getElementById("nameInput").value = ""; 
+    document.getElementById("nameInput").focus(); 
        
     authenticated = false;
 }
@@ -393,20 +405,11 @@ function sendPass() {
     }));
     
     document.getElementById("passInput").value = ""; 
-    
+
+    autoAuth(); 
+
     return false;
-
 }
-
-/* Not needed any more - YAY!
-function post( address, message ) {
-    var method = "POST";
-    var xhr = new XMLHttpRequest();
-    xhr.open(method, address, true);
-    xhr.setRequestHeader("Content-Type", "application/json");
-    xhr.send(message);
-}
-*/
 
 function sendCommand(command) {
    

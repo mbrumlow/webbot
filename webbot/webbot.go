@@ -52,10 +52,11 @@ type RobotEvent struct {
 }
 
 type WebBot struct {
-	controlUrl string
-	robot      Robot
-	videoDev   string
-	pass       string
+	controlUrl    string
+	robot         Robot
+	videoDev      string
+	pass          string
+	VideoBuffSize int
 
 	// Video related stuff.
 	mu           sync.Mutex
@@ -65,7 +66,13 @@ type WebBot struct {
 }
 
 func New(controlUrl, videoDev, pass string, robot Robot) WebBot {
-	return WebBot{controlUrl: controlUrl, pass: pass, robot: robot, videoDev: videoDev}
+	return WebBot{
+		controlUrl:    controlUrl,
+		pass:          pass,
+		robot:         robot,
+		videoDev:      videoDev,
+		VideoBuffSize: 1024,
+	}
 }
 
 func (wb *WebBot) Run() error {
@@ -264,12 +271,12 @@ func (wb *WebBot) handleConnection(ws *websocket.Conn, src net.Conn) error {
 
 	defer src.Close()
 
-	buf := make([]byte, 1024)
+	buf := make([]byte, wb.VideoBuffSize)
 
 	for {
 		size, err := src.Read(buf)
 		if err != nil {
-			log.Printf("Video recive error: %v\n", err.Error())
+			log.Printf("Video receive error: %v\n", err.Error())
 			break
 		}
 

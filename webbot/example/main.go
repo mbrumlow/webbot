@@ -21,6 +21,7 @@ func main() {
 
 	r := textBot{}
 	wb := webbot.New(*host, *video, *pass, &r)
+	wb.VideoBuffSize = 512
 
 	for {
 		if err := wb.Run(); err != nil {
