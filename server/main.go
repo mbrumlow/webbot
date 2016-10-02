@@ -116,6 +116,7 @@ type User struct {
 	Name  string
 	Admin bool
 	Pass  string
+	Token string
 }
 
 var (
@@ -297,6 +298,55 @@ func clientEventReader(c *Client) {
 	}
 }
 
+func loadUser(name string) (User, bool, error) {
+
+	userFile := filepath.Join(*dataDir, "users", name)
+	userBytes, err := ioutil.ReadFile(userFile)
+	if err != nil && os.IsNotExist(err) {
+		return User{}, false, nil
+	} else if err != nil {
+		return User{}, false, err
+	}
+
+	user := User{}
+	if err := json.Unmarshal(userBytes, &user); err != nil {
+		return User{}, false, err
+	}
+
+	return user, true, nil
+}
+
+func setUserToken(name, token string) error {
+
+	user, ok, err := loadUser(name)
+	if err != nil {
+		return err
+	}
+
+	if !ok {
+		return fmt.Errorf("Update token on nonexistent user!")
+	}
+
+	user.Token = token
+
+	b, err := json.Marshal(&user)
+	if err != nil {
+		return fmt.Errorf("Failed to register: %v\n", err.Error())
+	}
+
+	userFileUpdate := filepath.Join(*dataDir, "users", name+".update")
+	if err := ioutil.WriteFile(userFileUpdate, b, 0600); err != nil {
+		return fmt.Errorf("Failed to register: %v\n", err.Error())
+	}
+
+	userFile := filepath.Join(*dataDir, "users", name)
+	if err := os.Rename(userFileUpdate, userFile); err != nil {
+		return fmt.Errorf("Failed to register: %v\n", err.Error())
+	}
+
+	return nil
+}
+
 func nameRegistered(name string) (bool, error) {
 
 	userFile := filepath.Join(*dataDir, "users", name)
@@ -352,8 +402,8 @@ func wsAddClient(ws *websocket.Conn, c *Client) (int, error) {
 	defer clientMu.Unlock()
 
 	tokenMatch := false
-	m, ok := clients[c.Name]
-	if ok {
+	m, activeUser := clients[c.Name]
+	if activeUser {
 		for client, _ := range m {
 			if c.Token != "" && client.Token == c.Token {
 				tokenMatch = true
@@ -361,52 +411,52 @@ func wsAddClient(ws *websocket.Conn, c *Client) (int, error) {
 		}
 	}
 
-	if !ok || ok && !tokenMatch {
-		if ok, err := nameRegistered(c.Name); err != nil {
-			return 0, err
-		} else if ok && !c.authenticated {
-
+	user, registered, err := loadUser(c.Name)
+	if err != nil {
+		return 0, err
+	} else if registered && !c.authenticated && (!activeUser || activeUser && !tokenMatch) {
+		if c.Token != "" && c.Token == user.Token {
+			tokenMatch = true
+		} else {
 			if err := wsSendEvent(ws, AuthPassRequired, "Password Required."); err != nil {
 				return 0, err
 			}
-
 			return authStatePass, nil
 		}
+
 	}
 
 	// A user with this name is already logged in.
 	// User is not authenticated.
 	// Name is not registered.
-	if ok && !tokenMatch && !c.authenticated {
-
+	if activeUser && !tokenMatch && !c.authenticated {
 		if err := wsSendEvent(ws, AuthUserInUse, "Name in use."); err != nil {
 			return 0, err
 		}
-
 		return authStateGetAuth, nil
 	}
 
 	// * Nobody else is logged in to this name.
 	// * Name not registered.
-	if !ok {
-
-		// Create new token for new name.
-		if token, err := newToken(); err != nil {
-			return AuthError, fmt.Errorf("Failed to create new token: %v", err)
-		} else {
-			c.Token = token
-		}
-
+	if !activeUser {
 		m = make(map[*Client]interface{})
 		clients[c.Name] = m
-
 	}
 
-	if c.Token == "" {
+	if !registered {
 		if token, err := newToken(); err != nil {
 			return AuthError, fmt.Errorf("Failed to create new token: %v", err)
 		} else {
+			fmt.Printf("SETTING TOKEN!\n")
 			c.Token = token
+		}
+	} else {
+		c.Token = user.Token
+	}
+
+	if registered && c.Token != user.Token {
+		if err := setUserToken(c.Name, c.Token); err != nil {
+			return AuthError, fmt.Errorf("Failed to save token: %v", err)
 		}
 	}
 
