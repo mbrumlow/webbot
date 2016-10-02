@@ -46,6 +46,11 @@
     visibility: visible;
 }
 
+#userBar {
+	text-align: right; 
+	padding-bottom: 1ex;
+}
+
 #authScreen {
     background: white; 
     opacity:    0.90; 

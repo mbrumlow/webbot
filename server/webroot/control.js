@@ -147,6 +147,8 @@ function authOk(je) {
 
     setCookie("authToken", token); 
     setCookie("username", username);
+	
+	document.getElementById("userName").innerHTML = username;
 
     authenticated = true;
 
@@ -501,8 +503,11 @@ function sendChat() {
 function logOut() {
     deleteCookie("username"); 
     deleteCookie("authToken"); 
-    ws.close() 
+    ws.close();
+    document.getElementById("userName").innerHTML = '';
+    return false;
 }
+
 function deleteCookie(cname) {
     setCookie(cname, "", -1) 
 }
