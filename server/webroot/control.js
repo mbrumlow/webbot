@@ -1,4 +1,3 @@
-
 var ws;
 var powerL = 0; 
 var powerR = 0; 
@@ -34,18 +33,18 @@ function createWebSocket() {
 		var authToken = getCookie("authToken");
 		authToken = authToken.replace(/['"]+/g, '')
 
-		if( username.length > 0  && authToken.length > 0 ) {
+			if( username.length > 0  && authToken.length > 0 ) {
 
-			autoAuth(); 
+				autoAuth(); 
 
-			ws.send(JSON.stringify({
-				Name: username,
-				Token: authToken,
-			}));
+				ws.send(JSON.stringify({
+					Name: username,
+					Token: authToken,
+				}));
 
-		} else {
-            needName();   
-        }
+			} else {
+				needName();   
+			}
 
 	};  
 
@@ -59,8 +58,8 @@ function createWebSocket() {
 				authOk(je); 
 				break;
 
-            case 2: // AUTH_ERROR
-                break;
+			case 2: // AUTH_ERROR
+				break;
 
 			case 3: // AUTH_USERNAME_IN_USE
 				authUserInUse();
@@ -82,10 +81,10 @@ function createWebSocket() {
 
 			case 32: // TrackPower
 				handleEvent(je, "actionLog") 
-				break;
+					break;
 			case 64: // Chat 
 				handleEvent(je, "chatLog") 
-				break;
+					break;
 			default: 
 				console.log("Unknown event: ", je.Type) 
 		}
@@ -100,151 +99,151 @@ function createWebSocket() {
 }
 
 function autoAuth() {
-    
-    document.getElementById('authScreen').className = 'visible';    
-    document.getElementById('authLoading').className = 'visible';
-    document.getElementById('authInput').className = 'visible';
-    document.getElementById('authName').className = 'hidden';
-    document.getElementById('authPass').className = 'hidden';
-    document.getElementById('authRegister').className = 'hidden';
-    document.getElementById('authErrorInUse').className = 'authError hidden';
-    document.getElementById('AuthErrorBadPass').className = 'authError hidden';
-    document.getElementById('AuthErrorBadName').className = 'authError hidden';
 
-    authenticated = false; 
+	document.getElementById('authScreen').className = 'visible';    
+	document.getElementById('authLoading').className = 'visible';
+	document.getElementById('authInput').className = 'visible';
+	document.getElementById('authName').className = 'hidden';
+	document.getElementById('authPass').className = 'hidden';
+	document.getElementById('authRegister').className = 'hidden';
+	document.getElementById('authErrorInUse').className = 'authError hidden';
+	document.getElementById('AuthErrorBadPass').className = 'authError hidden';
+	document.getElementById('AuthErrorBadName').className = 'authError hidden';
+
+	authenticated = false; 
 }
 
 function needName() {
-    
-    document.getElementById('authScreen').className = 'visible';    
-    document.getElementById('authLoading').className = 'hidden';
-    document.getElementById('authInput').className = 'visible';
-    document.getElementById('authName').className = 'visible';
-    document.getElementById('authPass').className = 'hidden';
-    document.getElementById('authRegister').className = 'hidden';
-    document.getElementById('authErrorInUse').className = 'authError hidden';
-    document.getElementById('AuthErrorBadPass').className = 'authError hidden';
-    document.getElementById('AuthErrorBadName').className = 'authError hidden';
-    
-    document.getElementById("nameInput").value = ""; 
-    document.getElementById("nameInput").focus(); 
 
-    authenticated = false; 
+	document.getElementById('authScreen').className = 'visible';    
+	document.getElementById('authLoading').className = 'hidden';
+	document.getElementById('authInput').className = 'visible';
+	document.getElementById('authName').className = 'visible';
+	document.getElementById('authPass').className = 'hidden';
+	document.getElementById('authRegister').className = 'hidden';
+	document.getElementById('authErrorInUse').className = 'authError hidden';
+	document.getElementById('AuthErrorBadPass').className = 'authError hidden';
+	document.getElementById('AuthErrorBadName').className = 'authError hidden';
+
+	document.getElementById("nameInput").value = ""; 
+	document.getElementById("nameInput").focus(); 
+
+	authenticated = false; 
 }
 
 function authOk(je) {
 
-    token = JSON.parse(je.Event);
+	token = JSON.parse(je.Event);
 
-    document.getElementById('authScreen').className = 'hidden';    
-    document.getElementById('authLoading').className = 'hidden';
-    document.getElementById('authInput').className = 'hidden';
-    document.getElementById('authName').className = 'hidden';
-    document.getElementById('authPass').className = 'hidden';
-    document.getElementById('authRegister').className = 'hidden';
-    document.getElementById('authErrorInUse').className = 'authError hidden';
-    document.getElementById('AuthErrorBadPass').className = 'authError hidden';
+	document.getElementById('authScreen').className = 'hidden';    
+	document.getElementById('authLoading').className = 'hidden';
+	document.getElementById('authInput').className = 'hidden';
+	document.getElementById('authName').className = 'hidden';
+	document.getElementById('authPass').className = 'hidden';
+	document.getElementById('authRegister').className = 'hidden';
+	document.getElementById('authErrorInUse').className = 'authError hidden';
+	document.getElementById('AuthErrorBadPass').className = 'authError hidden';
 
-    setCookie("authToken", token); 
-    setCookie("username", username);
-	
+	setCookie("authToken", token); 
+	setCookie("username", username);
+
 	document.getElementById("userName").innerHTML = username;
 
-    authenticated = true;
+	authenticated = true;
 
 }
 
 function authUserInUse() {
 
-    document.getElementById('authScreen').className = 'visible';    
-    document.getElementById('authLoading').className = 'hidden';
-    document.getElementById('authInput').className = 'visible';
-    document.getElementById('authName').className = 'visible';
-    document.getElementById('authPass').className = 'hidden';
-    document.getElementById('authRegister').className = 'hidden';
-    document.getElementById('authErrorInUse').className = 'authError visible';
-    document.getElementById('AuthErrorBadPass').className = 'authError hidden';
-    document.getElementById('AuthErrorBadName').className = 'authError hidden';
-       
-    authenticated = false;
+	document.getElementById('authScreen').className = 'visible';    
+	document.getElementById('authLoading').className = 'hidden';
+	document.getElementById('authInput').className = 'visible';
+	document.getElementById('authName').className = 'visible';
+	document.getElementById('authPass').className = 'hidden';
+	document.getElementById('authRegister').className = 'hidden';
+	document.getElementById('authErrorInUse').className = 'authError visible';
+	document.getElementById('AuthErrorBadPass').className = 'authError hidden';
+	document.getElementById('AuthErrorBadName').className = 'authError hidden';
+
+	authenticated = false;
 }
 
 function authPassRequired() {
 
-    document.getElementById('authScreen').className = 'visible';    
-    document.getElementById('authLoading').className = 'hidden';
-    document.getElementById('authInput').className = 'visible';
-    document.getElementById('authName').className = 'hidden';
-    document.getElementById('authPass').className = 'visible';
-    document.getElementById('authRegister').className = 'hidden';
-    document.getElementById('authErrorInUse').className = 'authError hidden';
-    document.getElementById('AuthErrorBadPass').className = 'authError hidden';
-    document.getElementById('AuthErrorBadName').className = 'authError hidden';
+	document.getElementById('authScreen').className = 'visible';    
+	document.getElementById('authLoading').className = 'hidden';
+	document.getElementById('authInput').className = 'visible';
+	document.getElementById('authName').className = 'hidden';
+	document.getElementById('authPass').className = 'visible';
+	document.getElementById('authRegister').className = 'hidden';
+	document.getElementById('authErrorInUse').className = 'authError hidden';
+	document.getElementById('AuthErrorBadPass').className = 'authError hidden';
+	document.getElementById('AuthErrorBadName').className = 'authError hidden';
 
-    document.getElementById("passInput").value = ""; 
-    document.getElementById("passInput").focus(); 
+	document.getElementById("passInput").value = ""; 
+	document.getElementById("passInput").focus(); 
 
-    authenticated = false;
+	authenticated = false;
 }
 
 function authBadPass() {
 
-    document.getElementById('authScreen').className = 'visible';    
-    document.getElementById('authLoading').className = 'hidden';
-    document.getElementById('authInput').className = 'visible';
-    document.getElementById('authName').className = 'hidden';
-    document.getElementById('authPass').className = 'visible';
-    document.getElementById('authRegister').className = 'hidden';
-    document.getElementById('authErrorInUse').className = 'authError hidden';
-    document.getElementById('AuthErrorBadPass').className = 'authError visible';
-    document.getElementById('AuthErrorBadName').className = 'authError hidden';
-    
-    document.getElementById("passInput").value = ""; 
-    document.getElementById("passInput").focus(); 
-       
-    authenticated = false;
+	document.getElementById('authScreen').className = 'visible';    
+	document.getElementById('authLoading').className = 'hidden';
+	document.getElementById('authInput').className = 'visible';
+	document.getElementById('authName').className = 'hidden';
+	document.getElementById('authPass').className = 'visible';
+	document.getElementById('authRegister').className = 'hidden';
+	document.getElementById('authErrorInUse').className = 'authError hidden';
+	document.getElementById('AuthErrorBadPass').className = 'authError visible';
+	document.getElementById('AuthErrorBadName').className = 'authError hidden';
+
+	document.getElementById("passInput").value = ""; 
+	document.getElementById("passInput").focus(); 
+
+	authenticated = false;
 }
 
 function authBadName() {
 
-    document.getElementById('authScreen').className = 'visible';    
-    document.getElementById('authLoading').className = 'hidden';
-    document.getElementById('authInput').className = 'visible';
-    document.getElementById('authName').className = 'visible';
-    document.getElementById('authPass').className = 'hidden';
-    document.getElementById('authRegister').className = 'hidden';
-    document.getElementById('authErrorInUse').className = 'authError hidden';
-    document.getElementById('AuthErrorBadPass').className = 'authError hidden';
-    document.getElementById('AuthErrorBadName').className = 'authError visible';
-    
-    document.getElementById("nameInput").value = ""; 
-    document.getElementById("nameInput").focus(); 
-       
-    authenticated = false;
+	document.getElementById('authScreen').className = 'visible';    
+	document.getElementById('authLoading').className = 'hidden';
+	document.getElementById('authInput').className = 'visible';
+	document.getElementById('authName').className = 'visible';
+	document.getElementById('authPass').className = 'hidden';
+	document.getElementById('authRegister').className = 'hidden';
+	document.getElementById('authErrorInUse').className = 'authError hidden';
+	document.getElementById('AuthErrorBadPass').className = 'authError hidden';
+	document.getElementById('AuthErrorBadName').className = 'authError visible';
+
+	document.getElementById("nameInput").value = ""; 
+	document.getElementById("nameInput").focus(); 
+
+	authenticated = false;
 }
 
 function authRegister() {
 
-    document.getElementById('authScreen').className = 'visible';    
-    document.getElementById('authLoading').className = 'hidden';
-    document.getElementById('authInput').className = 'visible';
-    document.getElementById('authName').className = 'hidden';
-    document.getElementById('authPass').className = 'hidden';
-    document.getElementById('authRegister').className = 'visible';
-    document.getElementById('authErrorInUse').className = 'authError hidden';
-    document.getElementById('AuthErrorBadPass').className = 'authError hidden';
-    document.getElementById('AuthErrorBadName').className = 'authError hidden';
-       
+	document.getElementById('authScreen').className = 'visible';    
+	document.getElementById('authLoading').className = 'hidden';
+	document.getElementById('authInput').className = 'visible';
+	document.getElementById('authName').className = 'hidden';
+	document.getElementById('authPass').className = 'hidden';
+	document.getElementById('authRegister').className = 'visible';
+	document.getElementById('authErrorInUse').className = 'authError hidden';
+	document.getElementById('AuthErrorBadPass').className = 'authError hidden';
+	document.getElementById('AuthErrorBadName').className = 'authError hidden';
+
 }
 
 document.onkeydown = function checkKey(e) {
 
 	e = e || window.event;
 
-    var chatEnabled = false; 
-    if( document.getElementById("txtArea").value.length != 0 ) {
-        chatEnabled = true;   
-    }
+	var chatEnabled = false; 
+	if( document.getElementById("txtArea").value.length != 0 ) {
+		chatEnabled = true;   
+	}
 
 	switch(e.keyCode) {
 		case 38:
@@ -299,15 +298,15 @@ document.onkeydown = function checkKey(e) {
 function clearChatLog() {
 	var node = document.getElementById("chatLog");
 	while (node && node.firstChild) {
-    	node.removeChild(node.firstChild);
+		node.removeChild(node.firstChild);
 	}
 }
 
 function handleEvent(je, type) {
 
-    ev = JSON.parse(je.Event)
+	ev = JSON.parse(je.Event)
 
-	var elem = document.getElementById(type);
+		var elem = document.getElementById(type);
 	children = elem.children;
 
 	if( children.length > 100 ) {
@@ -328,13 +327,13 @@ function handleEvent(je, type) {
 } 
 
 function insertEventSlow(je, ev, type) {
-	
+
 	var elem = document.getElementById(type);
 	children = elem.children;
 
 	var node = document.createElement("div");
 	var textnode = document.createTextNode(ev.Time + ": " + je.UserInfo.Name.substring(0, 10)  + " > " + ev.Action);
-    node.title = je.UserInfo.Name;
+	node.title = je.UserInfo.Name;
 	node.setAttribute("chatIndex", ev.Id); 
 	node.appendChild(textnode); 
 
@@ -346,22 +345,22 @@ function insertEventSlow(je, ev, type) {
 			return 
 		}	
 	}
-	
+
 	elem.appendChild(node); 
 	elem.scrollTop = elem.scrollHeight;
 
 }
 
 function insertEventFast(je, ev, type) {
-	
+
 	var elem = document.getElementById(type);
 
 	var node = document.createElement("div");
 	var textnode = document.createTextNode(ev.Time + ": " + je.UserInfo.Name.substring(0, 10)  + " > " + ev.Action);
-    node.title = je.UserInfo.Name;
+	node.title = je.UserInfo.Name;
 	node.setAttribute("chatIndex", ev.Id); 
 	node.appendChild(textnode); 
-	
+
 	elem.appendChild(node); 
 	elem.scrollTop = elem.scrollHeight;
 
@@ -369,165 +368,165 @@ function insertEventFast(je, ev, type) {
 
 function sendName() {
 
-    username = document.getElementById("nameInput").value; 
+	username = document.getElementById("nameInput").value; 
 
-    ws.send(JSON.stringify({
-        Name: username,
-    }));
-    
-    document.getElementById("nameInput").value = "";
+	ws.send(JSON.stringify({
+		Name: username,
+	}));
 
-    return false;
+	document.getElementById("nameInput").value = "";
+
+	return false;
 
 }
 
 function sendRegister() {
 
-    var password = document.getElementById("passInputA").value; 
-    var password = SHA256(password); 
-    
-    var info = {};
+	var password = document.getElementById("passInputA").value; 
+	var password = SHA256(password); 
+
+	var info = {};
 	info["Type"] = 128; // REGISTER_EVENT
 	info["Event"] = password;
-	
-    document.getElementById("passInputA").value = "";
+
+	document.getElementById("passInputA").value = "";
 	document.getElementById("passInputB").value = "";
 
-    ws.send(JSON.stringify(info));
-    return false;
+	ws.send(JSON.stringify(info));
+	return false;
 
 }
 
 function sendPass() {
 
-    password = document.getElementById("passInput").value;
-    password = SHA256(password); 
-    ws.send(JSON.stringify({
-        Pass: password,
-    }));
-    
-    document.getElementById("passInput").value = ""; 
+	password = document.getElementById("passInput").value;
+	password = SHA256(password); 
+	ws.send(JSON.stringify({
+		Pass: password,
+	}));
 
-    autoAuth(); 
+	document.getElementById("passInput").value = ""; 
 
-    return false;
+	autoAuth(); 
+
+	return false;
 }
 
 function sendCommand(command) {
-   
-    var je = {}; 
-    je["Type"] = ROBOT_COMMAND;  
-    je["Event"] = JSON.stringify(command);
-    
-    ws.send(JSON.stringify(je));
+
+	var je = {}; 
+	je["Type"] = ROBOT_COMMAND;  
+	je["Event"] = JSON.stringify(command);
+
+	ws.send(JSON.stringify(je));
 }
 
 function powerRight(p) {
-    powerR = p; 
+	powerR = p; 
 }
 
 function powerLeft(p) {
-    powerL = p;   
+	powerL = p;   
 }
 
 function rotateLeft() {
-    dir = 3; 
-    sendCommand(COMMAND_LEFT); 
+	dir = 3; 
+	sendCommand(COMMAND_LEFT); 
 }
 
 function rotateRight() {
-    dir = 2; 
-    sendCommand(COMMAND_RIGHT); 
+	dir = 2; 
+	sendCommand(COMMAND_RIGHT); 
 }
 
 function fullForward() {
-    dir = 1; 
-    sendCommand(COMMAND_FORWARD); 
+	dir = 1; 
+	sendCommand(COMMAND_FORWARD); 
 }
 
 function fullStop() {
-    dir = 0; 
-    sendCommand(COMMAND_STOP);
+	dir = 0; 
+	sendCommand(COMMAND_STOP);
 }
 
 function fullReverse() {
-    dir = -1;
-    sendCommand(COMMAND_BACKWARD); 
+	dir = -1;
+	sendCommand(COMMAND_BACKWARD); 
 }
 
 function toggleLinked() {
 
-    b = document.getElementById("linkedButton"); 
- 
-    if(powerLinked) {
-        powerLinked = false;
-        b.innerHTML = "&nhArr;" 
-    } else {
-        powerLinked = true; 
-        b.innerHTML = "&hArr;" 
-    }
+	b = document.getElementById("linkedButton"); 
+
+	if(powerLinked) {
+		powerLinked = false;
+		b.innerHTML = "&nhArr;" 
+	} else {
+		powerLinked = true; 
+		b.innerHTML = "&hArr;" 
+	}
 }
 
 function sendChat() {
-    
-    if(!authenticated) {
-        return;
-    }
+
+	if(!authenticated) {
+		return;
+	}
 
 	if( document.getElementById("txtArea").value.length == 0 ) {
 		return;
 	}
 
-    // Local commands
+	// Local commands
 	if( document.getElementById("txtArea").value == "/register" ) {
 		authRegister();
-        document.getElementById("txtArea").value = '';
-        return;
+		document.getElementById("txtArea").value = '';
+		return;
 	}
 
 	if( document.getElementById("txtArea").value == "/logout" ) {
-        logOut();
-        document.getElementById("txtArea").value = '';
-        return;
+		logOut();
+		document.getElementById("txtArea").value = '';
+		return;
 	}
 
 	var info = {};
 	info["Type"] = 64; // CHAT_EVENT
 	info["Event"] = document.getElementById("txtArea").value;
 
-    ws.send(JSON.stringify(info));
-    document.getElementById("txtArea").value = '';
-    
+	ws.send(JSON.stringify(info));
+	document.getElementById("txtArea").value = '';
+
 }
 
 function logOut() {
-    deleteCookie("username"); 
-    deleteCookie("authToken"); 
-    ws.close();
-    document.getElementById("userName").innerHTML = '';
-    return false;
+	deleteCookie("username"); 
+	deleteCookie("authToken"); 
+	ws.close();
+	document.getElementById("userName").innerHTML = '';
+	return false;
 }
 
 function deleteCookie(cname) {
-    setCookie(cname, "", -1) 
+	setCookie(cname, "", -1) 
 }
 
 function setCookie(cname, cvalue, exdays) {
-    var d = new Date();
-    d.setTime(d.getTime() + (exdays*24*60*60*1000));
-    var expires = "expires="+d.toUTCString();
-    document.cookie = cname + "=" + cvalue + "; " + expires;
+	var d = new Date();
+	d.setTime(d.getTime() + (exdays*24*60*60*1000));
+	var expires = "expires="+d.toUTCString();
+	document.cookie = cname + "=" + cvalue + "; " + expires;
 }
 
 function getCookie(cname) {
-    var name = cname + "=";
-    var ca = document.cookie.split(';');
-    for(var i=0; i<ca.length; i++) {
-        var c = ca[i];
-        while (c.charAt(0)==' ') c = c.substring(1);
-        if (c.indexOf(name) == 0) return c.substring(name.length,c.length);
-    }
-    return "";
+	var name = cname + "=";
+	var ca = document.cookie.split(';');
+	for(var i=0; i<ca.length; i++) {
+		var c = ca[i];
+		while (c.charAt(0)==' ') c = c.substring(1);
+		if (c.indexOf(name) == 0) return c.substring(name.length,c.length);
+	}
+	return "";
 }
 
 
