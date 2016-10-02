@@ -443,7 +443,7 @@ func wsAddClient(ws *websocket.Conn, c *Client) (int, error) {
 		clients[c.Name] = m
 	}
 
-	if !registered {
+	if !registered || user.Token == "" {
 		if token, err := newToken(); err != nil {
 			return AuthError, fmt.Errorf("Failed to create new token: %v", err)
 		} else {
