@@ -447,11 +447,14 @@ func wsAddClient(ws *websocket.Conn, c *Client) (int, error) {
 		if token, err := newToken(); err != nil {
 			return AuthError, fmt.Errorf("Failed to create new token: %v", err)
 		} else {
-			fmt.Printf("SETTING TOKEN!\n")
 			c.Token = token
 		}
 	} else {
 		c.Token = user.Token
+	}
+
+	if registered {
+		c.Admin = user.Admin
 	}
 
 	if registered && c.Token != user.Token {
