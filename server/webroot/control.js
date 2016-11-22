@@ -298,12 +298,35 @@ document.onkeyup = function checkKey(e) {
 
 	switch(e.keyCode) {
 		case 38:
+			if(dir === 1) {
+				if(!chatEnabled) {  
+					e.preventDefault();
+					fullStop();
+				}
+			}
+			break;
 		case 40: 
+			if(dir === -1) {
+				if(!chatEnabled) {  
+					e.preventDefault();
+					fullStop();
+				}
+			}
+			break;
 		case 37:
+			if(dir === 3) {
+				if(!chatEnabled) {  
+					e.preventDefault();
+					fullStop();
+				}
+			}
+			break;
 		case 39:
-			if(!chatEnabled) {  
-				e.preventDefault();
-				fullStop();
+			if(dir === 2) {
+				if(!chatEnabled) {  
+					e.preventDefault();
+					fullStop();
+				}
 			}
 			break;
 		default: 
