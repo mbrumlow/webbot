@@ -1,5 +1,6 @@
 <html> 
 <head>
+	<meta content='width=1024,user-scalable=no' name='viewport' />
     <link rel="stylesheet" type="text/css" href="style.css">
     <script src="jsmpg.js"></script>
     <script src="sha256.js"></script>
@@ -64,17 +65,17 @@
             <table class="controlTable"> 
                <tr> 
                    <td><div class="noselect">&nbsp;</div></td>
-                   <td><div class="button noselect" onclick="fullForward()">&uarr;</div></td>
+                   <td><div class="button noselect" onmousedown="fullForward()" onmouseup="fullStop()">&uarr;</div></td>
                    <td><div class="noselect">&nbsp;</div></td>
                </tr>    
                <tr> 
-                   <td><div class="button noselect" onclick="rotateLeft()">&larr;</div></td>
-                   <td><div class="button noselect" onclick="fullStop()">&oS;</div></td>
-                   <td><div class="button noselect" onclick="rotateRight()">&rarr;</div></td>
+                   <td><div class="button noselect" onmousedown="rotateLeft()", onmouseup="fullStop()">&larr;</div></td>
+                   <td><div class="button noselect" onmousedown="fullStop()">&oS;</div></td>
+                   <td><div class="button noselect" onmousedown="rotateRight()" onmouseup="fullStop()">&rarr;</div></td>
                </tr>    
                <tr> 
                    <td><div class="noselect">&nbsp;</div></td>
-                   <td><div class="button noselect" onclick="fullReverse()">&darr;</div></td>
+                   <td><div class="button noselect" onmousedown="fullReverse()" onmouseup="fullStop()">&darr;</div></td>
                    <td><div class="noselect">&nbsp;</div></td>
                </tr>    
 
@@ -86,14 +87,19 @@
             </div> 
             <div class="rightPanel"> 
 
-                    <canvas id="videoCanvas" width="640" height="480">
-                        <p>
-                        Please use a browser that supports the Canvas Element, like
-                        <a href="http://www.google.com/chrome">Chrome</a>,
-                        <a href="http://www.mozilla.com/firefox/">Firefox</a>,
-                        <a href="http://www.apple.com/safari/">Safari</a> or Internet Explorer 10
-                        </p> 
-                    </canvas>
+				<canvas id="videoCanvas" class="noselect" width="640" height="480">
+					<p>
+					Please use a browser that supports the Canvas Element, like
+					<a href="http://www.google.com/chrome">Chrome</a>,
+					<a href="http://www.mozilla.com/firefox/">Firefox</a>,
+					<a href="http://www.apple.com/safari/">Safari</a> or Internet Explorer 10
+					</p> 
+
+					<script type="text/javascript">
+						initializeCavasTouch();
+					</script>
+
+				</canvas>
 
                     <script type="text/javascript" src="jsmpg.js"></script>
 

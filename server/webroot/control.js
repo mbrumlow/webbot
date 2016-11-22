@@ -249,9 +249,7 @@ document.onkeydown = function checkKey(e) {
 		case 38:
 			if(!chatEnabled) {
 				e.preventDefault();
-				if(dir === -1 ) {
-					fullStop(); 
-				} else { 
+				if(dir != 1 ) {
 					fullForward();
 				}
 			}
@@ -259,9 +257,7 @@ document.onkeydown = function checkKey(e) {
 		case 40: 
 			if(!chatEnabled) { 
 				e.preventDefault();
-				if( dir === 1 ) { 
-					fullStop();
-				} else { 
+				if( dir != -1 ) { 
 					fullReverse(); 
 				}
 			}
@@ -269,9 +265,7 @@ document.onkeydown = function checkKey(e) {
 		case 37:
 			if(!chatEnabled) { 
 				e.preventDefault();
-				if( dir == 2 ) {
-					fullStop();
-				} else { 
+				if( dir != 3 ) {
 					rotateLeft();
 				}
 			}
@@ -279,9 +273,7 @@ document.onkeydown = function checkKey(e) {
 		case 39:
 			if(!chatEnabled) {  
 				e.preventDefault();
-				if( dir == 3 ) { 
-					fullStop();
-				} else { 
+				if( dir != 2 ) { 
 					rotateRight();
 				}
 			}
@@ -295,6 +287,28 @@ document.onkeydown = function checkKey(e) {
 	}
 }
 
+document.onkeyup = function checkKey(e) {
+
+	e = e || window.event;
+
+	var chatEnabled = false; 
+	if( document.getElementById("txtArea").value.length != 0 ) {
+		chatEnabled = true;   
+	}
+
+	switch(e.keyCode) {
+		case 38:
+		case 40: 
+		case 37:
+		case 39:
+			if(!chatEnabled) {  
+				e.preventDefault();
+				fullStop();
+			}
+			break;
+		default: 
+	}
+}
 function clearChatLog() {
 	var node = document.getElementById("chatLog");
 	while (node && node.firstChild) {
@@ -529,4 +543,79 @@ function getCookie(cname) {
 	return "";
 }
 
+function canvasEvent(event) {
+	var ex = event.pageX - vcanvas.offsetLeft; 
+	var ey = event.pageY - vcanvas.offsetTop;
+	handleCanvasXY(ex,ey); 
+}
+
+function canvasTouchEvent(event) {
+	var ex = event.touches[0].pageX - vcanvas.offsetLeft;
+	var ey = event.touches[0].pageY - vcanvas.offsetTop;
+	handleCanvasXY(ex,ey); 
+}
+
+function handleCanvasXY(ex, ey) {
+
+	if( ey < 150 ) {
+		// Forward 
+		fullForward();
+		return;
+	} else if ( ey > 330 ) {
+		// Backward 
+		fullReverse(); 
+		return;
+	}
+
+	if( ex < 150 ) {
+		// Left
+		rotateLeft();
+		return;
+	} else if ( ex > 490 ) {
+		// Right
+		rotateRight();
+		return;
+	}	
+
+	fullStop();
+	// All else STOP!
+}
+
+var vcanvas;
+function  initializeCavasTouch() { 
+	vcanvas = document.getElementById('videoCanvas');
+
+	vcanvas.addEventListener('touchstart', function(event) {
+		if(event.touches) {
+			canvasTouchEvent(event);	
+		} else {
+			canvasEvent(event);
+		}	
+		event.preventDefault();
+	}, false);
+
+	vcanvas.addEventListener('mousedown', function(event) {
+		canvasEvent(event);
+		event.preventDefault();
+	}, false);
+	
+	vcanvas.addEventListener('mouseup', function(event) {
+		fullStop();
+		event.preventDefault();
+	}, false);
+
+	vcanvas.addEventListener('touchend', function(event) {
+		fullStop();
+		event.preventDefault();
+	}, false);
+	
+	vcanvas.addEventListener('touchcancel', function(event) {
+		fullStop();
+		event.preventDefault();
+	}, false);
+
+	document.addEventListener('gesturestart', function (e) {
+		event.preventDefault();
+	}, false);
+}
 

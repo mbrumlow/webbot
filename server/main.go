@@ -157,7 +157,7 @@ func main() {
 	startTime := time.Now().UnixNano() / int64(time.Millisecond)
 	atomic.StoreUint64(&chatNum, uint64(startTime))
 
-	events := make(chan JsonEvent, 0)
+	events := make(chan JsonEvent, 10)
 
 	go chatDispatcher()
 

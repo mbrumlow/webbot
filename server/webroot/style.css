@@ -1,6 +1,6 @@
 
-.main {
-    width: 1024;
+#videoCanvas {
+	cursor: pointer;
 }
 
 .panel {
@@ -32,7 +32,6 @@
 
 .entireApp {
     width: 1024px; 
-    height: 90%; 
     margin: 0 auto; 
 }
 
@@ -117,6 +116,8 @@
     border-left-color: black;
 }
 
+
+
 .chatWindow {
     background: white;    
     width: 1024px; 
@@ -128,6 +129,7 @@
     border-left-style: dashed;
     border-left-color: black;
 }
+
 
 .chatText {
     width: 1024px; 
@@ -150,6 +152,7 @@
     display: flex;
     align-items: center; 
 }
+
 
 .textInput {
     width: 100%;
@@ -178,13 +181,13 @@
     display: inline-block;
 }
 
-
 .rightPanel {
     width: 640px; 
     height: 480px; 
     background: grey;
     display: inline-block;
 }
+
 
 .actionLog {
    overflow:hidden;
@@ -194,7 +197,6 @@
    font-family: Monospace;
    height: 276px;
 }
-
 
 .nobutton:hover {
     background-color: grey;    
@@ -226,7 +228,6 @@
 }
 
 .noselect {
-    -webkit-touch-callout: none;
     -webkit-user-select: none;
     -khtml-user-select: none;
     -moz-user-select: none;
@@ -234,11 +235,31 @@
     user-select: none;
 }
 
-input.power {
-    -webkit-transform: rotate(270deg);
-    -moz-transform: rotate(270deg);
-    transform: rotate(270deg);
-    width: 100%;
-    height: 100px;
+@media screen and (max-width: 1024px) {
+
+	.entireApp {
+		width: 640px;
+	}
+
+	.mainWindow {
+		width: 640px; 
+	}
+
+	.chatWindow {
+		width: 640px;
+	}
+	
+	.chatText {
+		width: 640px; 
+	}
+
+	.chatInput {
+		width: 640px; 
+	}
+	
+	.leftPanel {
+		display: none;
+	}
+
 }
 
