@@ -246,7 +246,9 @@ func commandEvent(userInfo UserInfo, jsonBytes []byte) {
 		return
 	}
 
-	a := Action{Time: formatedTime(), Action: fmt.Sprintf("-- %v --", control)}
+	id := atomic.AddUint64(&chatNum, 1)
+
+	a := Action{Id: id, Time: formatedTime(), Action: fmt.Sprintf("-- %v --", control)}
 
 	jsonBytes, err := json.Marshal(a)
 	if err != nil {
