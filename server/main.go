@@ -396,7 +396,7 @@ func wsAuthClient(ws *websocket.Conn, c *Client, pass string) (bool, error) {
 	return false, nil
 }
 
-func wsAddClient(ws *websocket.Conn, c *Client) (int, error) {
+func wsAddClient(ws *websocket.Conn, c *Client, events chan JsonEvent) (int, error) {
 
 	clientMu.Lock()
 	defer clientMu.Unlock()
@@ -464,11 +464,14 @@ func wsAddClient(ws *websocket.Conn, c *Client) (int, error) {
 	}
 
 	m[c] = nil
-	log.Printf("Adding client %v:%p\n", c.Name, c)
+	if len(m) == 1 {
+		systemChat(events, fmt.Sprintf("%v Joined.", c.Name))
+	}
+	log.Printf("Adding client (%v) %v:%p\n", len(m), c.Name, c)
 	return authStateOK, nil
 }
 
-func delClient(c *Client) {
+func delClient(c *Client, events chan JsonEvent) {
 
 	log.Printf("Deleting client %v:%p\n", c.Name, c)
 
@@ -483,6 +486,7 @@ func delClient(c *Client) {
 	delete(m, c)
 
 	if len(m) == 0 {
+		systemChat(events, fmt.Sprintf("%v Parted.", c.Name))
 		delete(clients, c.Name)
 	}
 
@@ -684,7 +688,7 @@ func clientHandler(ws *websocket.Conn, events chan JsonEvent) {
 
 		case authStateAdd:
 			wsLogInfof(ws, "authStateAdd")
-			if newState, err := wsAddClient(ws, client); err != nil {
+			if newState, err := wsAddClient(ws, client, events); err != nil {
 				wsLogErrorf(ws, "Failed to add client: %v\n", err.Error())
 				return
 			} else {
@@ -709,7 +713,7 @@ func clientHandler(ws *websocket.Conn, events chan JsonEvent) {
 		}
 	}
 
-	defer delClient(client)
+	defer delClient(client, events)
 
 	if err := wsSendEvent(ws, AuthOK, client.Token); err != nil {
 		client.logErrorf(err.Error())
@@ -767,6 +771,32 @@ func (c *Client) handleEvent(je JsonEvent, events chan JsonEvent) {
 		c.logErrorf("Received unknown event (%v)\n", je.Type)
 	}
 
+}
+
+func systemChat(events chan JsonEvent, chat string) {
+
+	id := atomic.AddUint64(&chatNum, 1)
+
+	a := Action{Id: id, Time: formatedTime(), Action: chat}
+	je, err := jsonEvent(ChatEvent, a, UserInfo{Name: "", Id: "0"})
+	if err != nil {
+		log.Printf("Failed to create system jsonEvent: %v", err)
+		return
+	}
+
+	// Manage in memory log.
+	chatMu.Lock()
+	chatLog.PushBack(je)
+
+	for chatLog.Len() > maxChatLog {
+		e := chatLog.Front()
+		if e != nil {
+			chatLog.Remove(e)
+		}
+	}
+	chatMu.Unlock()
+
+	sendToAll(je)
 }
 
 func (c *Client) handleChatEvent(e JsonEvent) {
