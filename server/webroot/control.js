@@ -358,6 +358,9 @@ function insertEventSlow(je, ev, type) {
 			elem.scrollTop = elem.scrollHeight;	
 			return 
 		}	
+		if(lastChatIndex == ev.Id) {
+			return
+		}
 	}
 
 	elem.appendChild(node); 
