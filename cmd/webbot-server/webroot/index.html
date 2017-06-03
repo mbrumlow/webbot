@@ -1,0 +1,82 @@
+<html> 
+<head>
+	
+	<script src="jsmpeg.min.js"></script>
+	<script src="robot.js"></script>
+	<script src="script.js"></script>
+
+	<style type="text/css">
+		
+	  .robot-container {
+		margin: auto; 
+		width: 1024px; 
+		height: 480px; 
+		box-shadow: 0px 0px 3px #888888;
+	  }
+	
+	  .view {
+		width: 640px; 
+		height: 480px; 
+		left; box-shadow: 3px 0 3px -2px #888888;
+		background-color: lightgrey; 
+		float: left;
+		position: relative;
+	  }
+
+	  .chat {
+		background-color: #ffffff; 
+		margin-left: 640px; 
+	    display: flex;
+		flex-flow: column;
+		height: 100%;
+	  }
+
+	  .chat .log {
+		flex: 1 1 auto;	
+		padding-left: 8px; 
+		overflow-wrap: break-word;
+		overflow-y: scroll;
+	  }
+
+	  .chat .input {
+		flex: 0 1 24px;
+		padding-left: 8px; 
+	    padding-bottom: 4px;
+	  }
+
+	  p {
+		margin: 0; 
+		padding: 0;
+	    overflow-wrap: break-word;
+	  }
+
+	  p:focus {
+		outline: none;
+	  }
+
+	</style> 
+</head> 
+<body>
+	<div style="width: 1024px; margin: auto;">
+		<h1>WEBBOT</h1> 
+	</div>
+
+	<div class="robot-container" > 
+		<div id="view" class="view"></div> 
+		
+		<div class="chat">
+	
+			<div id="chatLog" class="log"> 
+			</div> 
+
+			<div class="input"> 
+				<div style="padding-right: 1ex; float: left; ">></div> 
+				<div><p id="chatInput" contenteditable="true" spellcheck="true" role="textbox" style="padding-left: 20px;"></p></div>
+			</div> 
+
+		</div> 
+	</div> 
+
+	</div> 
+</body>  
+</html> 
