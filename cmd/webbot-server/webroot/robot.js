@@ -21,7 +21,16 @@ class Robot {
 	Destroy() {
 
 		this.reconnect = false; 
-		
+	
+		var elem = document.getElementById("chatLog");
+		if( elem != undefined && elem != null ) { 
+			var children = elem.children;
+			while( (children != undefined && children != null ) && children.length > 0 ) {
+				elem.removeChild(elem.firstChild);    
+				children = elem.children;
+			}
+		}
+
 		if(this.ws != undefined && this.ws != null) {
 			this.ws.onclose = {};
 			this.ws.close(); 
