@@ -1,1147 +1,167 @@
 package main
 
 import (
-	"bytes"
-	"container/list"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rand"
 	"encoding/base64"
-	"encoding/binary"
-	"encoding/hex"
-	"encoding/json"
-	"flag"
+	"errors"
 	"fmt"
-	"io/ioutil"
+	"httpbot"
+	"io"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
-	"strings"
-	"sync"
 	"sync/atomic"
-	"time"
 
-	"gopkg.in/mgo.v2/bson"
-
-	"github.com/mbrumlow/webbot/webbot"
-
-	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/net/websocket"
+
+	_ "net/http/pprof"
 )
 
-const (
-	maxVideo   = 100
-	maxEvents  = 10
-	maxChatLog = 100
-)
-
-const (
-	Signal = 1 << iota
-	Command
-	Video
-	StartVideo
-	StopVideo
-	ActionEvent
-	ChatEvent
-	RegisterEvent
-)
-
-const (
-	_ = iota
-	AuthOK
-	AuthError
-	AuthUserInUse
-	AuthPassRequired
-	AuthBadPass
-	AuthBadName
-)
-
-// Auth sates
-// Used for authentication flow control.
-const (
-	authStateGetAuth = iota
-	authStateAdd
-	authStatePass
-	authStateOK
-)
-
-type JsonEvent struct {
-	Type     int
-	Time     int64
-	Event    string
-	UserInfo UserInfo
-}
-
-type Action struct {
-	Id     uint64
-	Time   string
-	Action string
-}
-
-type Power struct {
-	Left  int16
-	Right int16
-}
-
-type Chat struct {
-	Auth string
-	Text string
-}
-
-type AuthEvent struct {
-	Name  string
-	Token string
-}
-
-type PassEvent struct {
-	Pass string
-}
-
-type Client struct {
-	To            chan JsonEvent
-	From          chan JsonEvent
-	Name          string
-	Active        bool
-	Token         string
-	ws            *websocket.Conn
-	authenticated bool
-	Admin         bool
-}
-
-type UserInfo struct {
-	Name string
-	Id   string
-}
-
-type User struct {
-	Name  string
-	Admin bool
-	Pass  string
-	Token string
-}
-
-var (
-	clientMu     sync.RWMutex
-	clients      = make(map[string]map[*Client]interface{})
-	videoClients = make(map[chan []byte]*websocket.Conn)
-
-	chatMu  sync.RWMutex
-	chatLog = list.New()
-
-	chatChan = make(chan JsonEvent, 100)
-
-	chatNum uint64
-
-	passMu sync.RWMutex
-
-	permMu       sync.RWMutex
-	robotEnabled bool
-	godMode      = make(map[string]bool)
-)
-
-var dataDir = flag.String("data", "data", "Data directory.")
-var pass = flag.String("pass", "", "Robot control password.")
+var userCount = uint64(0)
+var anonCount = uint64(0)
 
 func main() {
 
-	flag.Parse()
+	key := genKey()
 
-	if err := os.MkdirAll(*dataDir, 0700); err != nil {
-		log.Fatal("Failed to create data directory: %v\n", err.Error())
-	}
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6061", nil))
+	}()
 
-	if err := os.MkdirAll(filepath.Join(*dataDir, "users"), 0700); err != nil {
-		log.Fatal("Failed to create data/users directory: %v\n", err.Error())
-	}
+	hr := httpbot.NewRobot(true)
+	http.HandleFunc("/robot", func(w http.ResponseWriter, r *http.Request) {
 
-	// Seed the chat number with the current time.
-	startTime := time.Now().UnixNano() / int64(time.Millisecond)
-	atomic.StoreUint64(&chatNum, uint64(startTime))
+		// TODO: Auth.
 
-	events := make(chan JsonEvent, 10)
+		log.Printf("Robot connected.\n")
+		defer log.Printf("Robot disconnected.\n")
 
-	go chatDispatcher()
+		wsRobotHandler := websocket.Handler(hr.Robot)
+		wsRobotHandler.ServeHTTP(w, r)
+	})
 
-	http.Handle("/video", websocket.Handler(func(ws *websocket.Conn) {
-		clientVideoHandler(ws, events)
-	}))
+	http.HandleFunc("/video", func(w http.ResponseWriter, r *http.Request) {
 
-	http.Handle("/client", websocket.Handler(func(ws *websocket.Conn) {
-		clientHandler(ws, events)
-	}))
+		// TODO: Auth.
 
-	http.Handle("/robot", websocket.Handler(func(ws *websocket.Conn) {
-		robotHandler(ws, events)
-	}))
+		log.Printf("Video client connected.\n")
+		defer log.Printf("Video client disconnected.\n")
+
+		wsRobotHandler := websocket.Handler(hr.Video)
+		wsRobotHandler.ServeHTTP(w, r)
+	})
+
+	http.HandleFunc("/client", func(w http.ResponseWriter, r *http.Request) {
+
+		userID := atomic.AddUint64(&userCount, 1)
+		userName := ""
+		cookie := ""
+
+		c, err := r.Cookie("CHAT_NAME")
+		if err == nil && len(c.Value) > 0 {
+			if n, err := getName(c.Value, key); err == nil {
+				userName = n
+				cookie = c.Value
+			}
+		}
+
+		if len(userName) == 0 {
+			anonID := atomic.AddUint64(&anonCount, 1)
+			userName = fmt.Sprintf("Anon%v", anonID)
+		}
+
+		if len(cookie) == 0 {
+			if c, err := genCookie(userName, key); err != nil {
+				log.Printf("Failed to generate cookie: %v\n", err)
+			} else {
+				cookie = c
+			}
+		}
+
+		log.Printf("Client [%v:%v] connected.\n", userID, userName)
+		defer log.Printf("Client [%v:%v] disconnected.\n", userID, userName)
+
+		client := httpbot.NewClient(hr, userName, userID, cookie, 100, true)
+		wsRobotHandler := websocket.Handler(client.Run)
+		wsRobotHandler.ServeHTTP(w, r)
+	})
 
 	fs := http.FileServer(http.Dir("webroot"))
 	http.Handle("/", http.StripPrefix("/", fs))
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Fatal(http.ListenAndServe(":8888", nil))
 
 }
 
-func handleRobotEvents(ws *websocket.Conn, ready chan bool) {
+func genCookie(name string, key *[32]byte) (string, error) {
 
-	defer ws.Close()
-	defer close(ready)
-
-	for {
-		data := make([]byte, 0)
-		if err := websocket.Message.Receive(ws, &data); err != nil {
-			log.Printf("ERROR: failed to receive event from robot: %v\n", err.Error())
-			return
-		}
-
-		var rb webbot.RobotEvent
-		if err := bson.Unmarshal(data, &rb); err != nil {
-			log.Printf("ERROR: failed to decode event from robot: %v\n", err.Error())
-			return
-		}
-
-		switch rb.Type {
-		case Video:
-			sendVideoToClients(rb.Event)
-		default:
-			log.Println("ERROR: Received unknown event (%v) from robot.\n", rb.Type)
-		}
-	}
-}
-
-func sendVideoToClients(d []byte) {
-
-	clientMu.RLock()
-	defer clientMu.RUnlock()
-
-	for v, ws := range videoClients {
-
-		if len(v) > maxVideo-(maxVideo/10) {
-			log.Printf("INFO Dropping video frames on client: %v\n", ws.Request().RemoteAddr)
-			for len(v) != 0 {
-				<-v
-			}
-		}
-
-		v <- d
-	}
-}
-
-func sendEventToClient(ev JsonEvent) {
-
-	switch ev.Type {
-	case Command:
-		commandEvent(ev.UserInfo, []byte(ev.Event))
-	case StartVideo:
-	case StopVideo:
-		break
-	default:
-		log.Printf("ERROR: Not sending unknown event type (%v) to client.\n", ev.Type)
-	}
-
-}
-
-func commandEvent(userInfo UserInfo, jsonBytes []byte) {
-
-	var control webbot.RobotControl
-	if err := json.Unmarshal(jsonBytes, &control); err != nil {
-		log.Printf("ERROR: Failed to unmarshal command: %v\n", err.Error())
-		return
-	}
-
-	id := atomic.AddUint64(&chatNum, 1)
-
-	a := Action{Id: id, Time: formatedTime(), Action: fmt.Sprintf("-- %v --", control)}
-
-	jsonBytes, err := json.Marshal(a)
+	block, err := aes.NewCipher(key[:])
 	if err != nil {
-		log.Printf("ERROR: Failed to marshal json: %v.\n", err.Error())
-	}
-
-	je := JsonEvent{UserInfo: userInfo, Type: ActionEvent, Event: string(jsonBytes)}
-
-	sendToAll(je)
-
-}
-
-func robotDownEvent() {
-
-	a := Action{Time: formatedTime(), Action: "OFFLINE"}
-
-	jsonBytes, err := json.Marshal(a)
-	if err != nil {
-		log.Printf("ERROR: Failed to marshal json: %v.\n", err.Error())
-	}
-
-	je := JsonEvent{UserInfo: UserInfo{Name: "SYSTEM", Id: "SYSTEM:0"}, Type: ActionEvent, Event: string(jsonBytes)}
-
-	sendToAll(je)
-}
-
-func jsonEvent(t int, v interface{}, userInfo UserInfo) (JsonEvent, error) {
-
-	jb, err := json.Marshal(v)
-	if err != nil {
-		return JsonEvent{}, err
-	}
-
-	time := time.Now().UnixNano() / int64(time.Millisecond)
-
-	je := JsonEvent{Type: t, Time: time, Event: string(jb), UserInfo: userInfo}
-	return je, nil
-}
-
-func clientEventReader(c *Client) {
-	for {
-		var je JsonEvent
-		if err := websocket.JSON.Receive(c.ws, &je); err != nil {
-			wsLogErrorf(c.ws, "Error reading event: %v", err)
-			close(c.From)
-			return
-		}
-		c.From <- je
-	}
-}
-
-func loadUser(name string) (User, bool, error) {
-
-	userFile := filepath.Join(*dataDir, "users", name)
-	userBytes, err := ioutil.ReadFile(userFile)
-	if err != nil && os.IsNotExist(err) {
-		return User{}, false, nil
-	} else if err != nil {
-		return User{}, false, err
-	}
-
-	user := User{}
-	if err := json.Unmarshal(userBytes, &user); err != nil {
-		return User{}, false, err
-	}
-
-	return user, true, nil
-}
-
-func setUserToken(name, token string) error {
-
-	user, ok, err := loadUser(name)
-	if err != nil {
-		return err
-	}
-
-	if !ok {
-		return fmt.Errorf("Update token on nonexistent user!")
-	}
-
-	user.Token = token
-
-	b, err := json.Marshal(&user)
-	if err != nil {
-		return fmt.Errorf("Failed to register: %v\n", err.Error())
-	}
-
-	userFileUpdate := filepath.Join(*dataDir, "users", name+".update")
-	if err := ioutil.WriteFile(userFileUpdate, b, 0600); err != nil {
-		return fmt.Errorf("Failed to register: %v\n", err.Error())
-	}
-
-	userFile := filepath.Join(*dataDir, "users", name)
-	if err := os.Rename(userFileUpdate, userFile); err != nil {
-		return fmt.Errorf("Failed to register: %v\n", err.Error())
-	}
-
-	return nil
-}
-
-func nameRegistered(name string) (bool, error) {
-
-	userFile := filepath.Join(*dataDir, "users", name)
-	_, err := os.Stat(userFile)
-	if err == nil {
-		return true, nil
-	} else if os.IsNotExist(err) {
-		return false, nil
-	}
-
-	return false, err
-}
-
-func wsAuthClient(ws *websocket.Conn, c *Client, pass string) (bool, error) {
-
-	// TODO -- handle this without a global lock.
-	passMu.RLock()
-	passMu.RUnlock()
-
-	userFile := filepath.Join(*dataDir, "users", c.Name)
-	b, err := ioutil.ReadFile(userFile)
-	if err != nil {
-		return false, fmt.Errorf("Failed to read uesr file: %v", err.Error())
-	}
-
-	var user User
-	if err := json.Unmarshal(b, &user); err != nil {
-		return false, fmt.Errorf("Failed to unmarshal user file: %v", err.Error())
-	}
-
-	hash, err := hex.DecodeString(user.Pass)
-	if err != nil {
-		return false, err
-	}
-
-	if user.Name == c.Name {
-		if err := bcrypt.CompareHashAndPassword(hash, []byte(pass)); err == nil {
-			c.Admin = user.Admin
-			return true, nil
-		}
-	}
-
-	if err := wsSendEvent(ws, AuthBadPass, "Bad pass."); err != nil {
-		return false, err
-	}
-
-	return false, nil
-}
-
-func wsAddClient(ws *websocket.Conn, c *Client, events chan JsonEvent) (int, error) {
-
-	clientMu.Lock()
-	defer clientMu.Unlock()
-
-	tokenMatch := false
-	m, activeUser := clients[c.Name]
-	if activeUser {
-		for client, _ := range m {
-			if c.Token != "" && client.Token == c.Token {
-				tokenMatch = true
-			}
-		}
-	}
-
-	user, registered, err := loadUser(c.Name)
-	if err != nil {
-		return 0, err
-	} else if registered && !c.authenticated && (!activeUser || activeUser && !tokenMatch) {
-		if c.Token != "" && c.Token == user.Token {
-			tokenMatch = true
-		} else {
-			if err := wsSendEvent(ws, AuthPassRequired, "Password Required."); err != nil {
-				return 0, err
-			}
-			return authStatePass, nil
-		}
-
-	}
-
-	// A user with this name is already logged in.
-	// User is not authenticated.
-	// Name is not registered.
-	if activeUser && !tokenMatch && !c.authenticated {
-		if err := wsSendEvent(ws, AuthUserInUse, "Name in use."); err != nil {
-			return 0, err
-		}
-		return authStateGetAuth, nil
-	}
-
-	// * Nobody else is logged in to this name.
-	// * Name not registered.
-	if !activeUser {
-		m = make(map[*Client]interface{})
-		clients[c.Name] = m
-	}
-
-	if !registered || user.Token == "" {
-		if token, err := newToken(); err != nil {
-			return AuthError, fmt.Errorf("Failed to create new token: %v", err)
-		} else {
-			c.Token = token
-		}
-	} else {
-		c.Token = user.Token
-	}
-
-	if registered {
-		c.Admin = user.Admin
-	}
-
-	if registered && c.Token != user.Token {
-		if err := setUserToken(c.Name, c.Token); err != nil {
-			return AuthError, fmt.Errorf("Failed to save token: %v", err)
-		}
-	}
-
-	m[c] = nil
-	if len(m) == 1 {
-		systemChat(events, fmt.Sprintf("%v Joined.", c.Name))
-	}
-	log.Printf("Adding client (%v) %v:%p\n", len(m), c.Name, c)
-	return authStateOK, nil
-}
-
-func delClient(c *Client, events chan JsonEvent) {
-
-	log.Printf("Deleting client %v:%p\n", c.Name, c)
-
-	clientMu.Lock()
-	defer clientMu.Unlock()
-
-	m, ok := clients[c.Name]
-	if !ok {
-		return
-	}
-
-	delete(m, c)
-
-	if len(m) == 0 {
-		systemChat(events, fmt.Sprintf("%v Parted.", c.Name))
-		delete(clients, c.Name)
-	}
-
-}
-
-func newToken() (string, error) {
-
-	b := make([]byte, 256)
-	_, err := rand.Read(b)
-	if err != nil {
-		return "", fmt.Errorf("Failed to generate new token: %v", err.Error())
-	}
-
-	return base64.StdEncoding.EncodeToString(b), nil
-
-}
-
-func wsSendEvent(ws *websocket.Conn, event int, data string) error {
-
-	je, err := jsonEvent(event, data, UserInfo{Name: "SYSTEM", Id: "SYSTEM:0"})
-	if err != nil {
-		wsLogErrorf(ws, "Failed to create Auth Error event: %v", err)
-		return err
-	}
-
-	if err := websocket.JSON.Send(ws, &je); err != nil {
-		wsLogErrorf(ws, "Failed to send Auth Error event: %v", err)
-		return err
-	}
-
-	return nil
-}
-
-func wsGetAuth(ws *websocket.Conn) (string, string, error) {
-
-	var authEvent AuthEvent
-	if err := websocket.JSON.Receive(ws, &authEvent); err != nil {
-		return "", "", err
-	}
-
-	return authEvent.Name, authEvent.Token, nil
-}
-
-func wsGetPass(ws *websocket.Conn) (string, error) {
-
-	var passEvent PassEvent
-	if err := websocket.JSON.Receive(ws, &passEvent); err != nil {
 		return "", err
 	}
 
-	return passEvent.Pass, nil
-}
-
-func wsValidateName(ws *websocket.Conn, name string) (bool, error) {
-
-	if name != "" {
-		return true, nil
-	}
-
-	// TODO: Add more validation requirements.
-
-	wsLogErrorf(ws, "BAD USER: '%v'\n", name)
-
-	if err := wsSendEvent(ws, AuthBadName, "Bad name."); err != nil {
-		return false, err
-	}
-
-	return false, nil
-}
-
-func authRobot(ws *websocket.Conn) bool {
-
-	// TODO - validate robot has access to this server.
-	// TODO - make sure we are the only robot, reject others!
-
-	var password string
-	if err := websocket.JSON.Receive(ws, &password); err != nil {
-		log.Printf("ERROR: failed to receive password from robot: %v\n", err.Error())
-		return false
-	}
-
-	var ok = "NOT_OK"
-	if password == *pass {
-		ok = "OK"
-	}
-
-	if err := websocket.JSON.Send(ws, &ok); err != nil {
-		log.Printf("Failed to send password: %v", err.Error())
-		return false
-	}
-
-	if password == *pass {
-		return true
-	}
-
-	log.Printf("Password failure.")
-	return false
-}
-
-func robotHandler(ws *websocket.Conn, events chan JsonEvent) {
-
-	log.Printf("Robot connected.")
-	defer log.Printf("Robot disconnected.")
-
-	// Authenticate robot.
-	if !authRobot(ws) {
-		return
-	}
-
-	log.Printf("Robot authenticated.")
-
-	ready := make(chan bool, 1)
-	go handleRobotEvents(ws, ready)
-
-	go func() {
-		clientMu.Lock()
-		defer clientMu.Unlock()
-		if len(videoClients) > 0 {
-			event := JsonEvent{Type: StartVideo}
-			events <- event
-		} else {
-			event := JsonEvent{Type: StopVideo}
-			events <- event
-		}
-	}()
-
-	for {
-		select {
-		case event := <-events:
-
-			if rb, ok := webEventToRobotEvent(event); ok {
-				if data, err := bson.Marshal(&rb); err != nil {
-					log.Printf("ERROR: failed to marshal robot event: %v\n", err.Error())
-					return
-				} else {
-					if err := websocket.Message.Send(ws, data); err != nil {
-						log.Printf("ERROR: Failed to send event to robot: %v.\n", err.Error())
-						return
-					}
-				}
-			} else {
-				log.Printf("Dropping unknown robot event: %v\n", event.Type)
-			}
-			sendEventToClient(event)
-		case _, ok := <-ready:
-			if !ok {
-				return
-			}
-		}
-	}
-
-}
-
-func webEventToRobotEvent(je JsonEvent) (webbot.RobotEvent, bool) {
-
-	switch je.Type {
-	case Command:
-		return webbot.RobotEvent{Type: webbot.Command, Event: []byte(je.Event)}, true
-	case StartVideo:
-		return webbot.RobotEvent{Type: webbot.StartVideo, Event: []byte(je.Event)}, true
-	case StopVideo:
-		return webbot.RobotEvent{Type: webbot.StopVideo, Event: []byte(je.Event)}, true
-	}
-
-	return webbot.RobotEvent{}, false
-}
-
-func clientHandler(ws *websocket.Conn, events chan JsonEvent) {
-
-	defer ws.Close()
-	wsLogInfo(ws, "Connected.")
-	defer wsLogInfo(ws, "Disconnected.")
-
-	client := &Client{
-		To:   make(chan JsonEvent, maxEvents),
-		From: make(chan JsonEvent, 1),
-		ws:   ws,
-	}
-
-	state := authStateGetAuth
-	for state != authStateOK {
-		switch state {
-
-		case authStateGetAuth:
-			wsLogInfof(ws, "authStateGetAuth")
-			if name, token, err := wsGetAuth(ws); err != nil {
-				wsLogErrorf(ws, "Failed to get client auth: %v\n", err.Error())
-				return
-			} else {
-				if ok, err := wsValidateName(ws, name); err != nil {
-					wsLogErrorf(ws, "Failed to validate name: %v\n", err.Error())
-					return
-				} else if ok {
-					client.Name = name
-					client.Token = token
-					state = authStateAdd
-				}
-			}
-
-		case authStateAdd:
-			wsLogInfof(ws, "authStateAdd")
-			if newState, err := wsAddClient(ws, client, events); err != nil {
-				wsLogErrorf(ws, "Failed to add client: %v\n", err.Error())
-				return
-			} else {
-				state = newState
-			}
-
-		case authStatePass:
-			wsLogInfof(ws, "authStatePass")
-			if pass, err := wsGetPass(ws); err != nil {
-				wsLogErrorf(ws, "Failed to get client pass: %v\n", err.Error())
-				return
-			} else {
-				wsLogInfo(ws, "Got password.")
-				if ok, err := wsAuthClient(ws, client, pass); err != nil {
-					wsLogErrorf(ws, "Failed to auth client: %v\n", err.Error())
-					return
-				} else if ok {
-					client.authenticated = true
-					state = authStateAdd
-				}
-			}
-		}
-	}
-
-	defer delClient(client, events)
-
-	if err := wsSendEvent(ws, AuthOK, client.Token); err != nil {
-		client.logErrorf(err.Error())
-		return
-	}
-
-	go client.chatCatchUp()
-	go clientEventReader(client)
-
-	for {
-		select {
-		case event := <-client.To:
-			if err := websocket.JSON.Send(ws, &event); err != nil {
-				client.logErrorf("Error sending event: %v", err)
-				return
-			}
-		case clientEvent, ok := <-client.From:
-			if !ok {
-				return
-			}
-			client.handleEvent(clientEvent, events)
-		}
-	}
-
-}
-
-func (c *Client) chatCatchUp() {
-
-	// Get the list while under a lock.
-	// Make a copy of the list because we don't want to hold the lock
-	// while we wait to send all the events to the client (which my be slow).
-	chatMu.RLock()
-	catchupLog := make([]JsonEvent, 0, chatLog.Len())
-	for e := chatLog.Front(); e != nil; e = e.Next() {
-		catchupLog = append(catchupLog, e.Value.(JsonEvent))
-	}
-	chatMu.RUnlock()
-
-	for _, je := range catchupLog {
-		c.To <- je
-	}
-
-}
-
-func (c *Client) handleEvent(je JsonEvent, events chan JsonEvent) {
-
-	switch je.Type {
-	case ChatEvent:
-		c.handleChatEvent(je)
-	case Command:
-		c.handleCommandEvent(je, events)
-	case RegisterEvent:
-		c.handleRegisterEvent(je)
-	default:
-		c.logErrorf("Received unknown event (%v)\n", je.Type)
-	}
-
-}
-
-func systemChat(events chan JsonEvent, chat string) {
-
-	id := atomic.AddUint64(&chatNum, 1)
-
-	a := Action{Id: id, Time: formatedTime(), Action: chat}
-	je, err := jsonEvent(ChatEvent, a, UserInfo{Name: "", Id: "0"})
+	gcm, err := cipher.NewGCM(block)
 	if err != nil {
-		log.Printf("Failed to create system jsonEvent: %v", err)
-		return
+		return "", err
 	}
 
-	// Manage in memory log.
-	chatMu.Lock()
-	chatLog.PushBack(je)
-
-	for chatLog.Len() > maxChatLog {
-		e := chatLog.Front()
-		if e != nil {
-			chatLog.Remove(e)
-		}
-	}
-	chatMu.Unlock()
-
-	sendToAll(je)
-}
-
-func (c *Client) handleChatEvent(e JsonEvent) {
-
-	if e.Event == "" {
-		return
-	}
-
-	if strings.HasPrefix(e.Event, "/") {
-		c.handleWebCommandEvent(e)
-		return
-	}
-
-	c.logPrefixf("CHAT", "%v\n", e.Event)
-
-	// This will ensure that all chats have a unis id
-	id := atomic.AddUint64(&chatNum, 1)
-
-	a := Action{Id: id, Time: formatedTime(), Action: e.Event}
-	je, err := jsonEvent(ChatEvent, a, c.userInfo())
+	nonce := make([]byte, gcm.NonceSize())
+	_, err = io.ReadFull(rand.Reader, nonce)
 	if err != nil {
-		c.logErrorf("Failed to create jsonEvent: %v", err)
-		return
+		return "", err
 	}
 
-	// Manage in memory log.
-	chatMu.Lock()
-	chatLog.PushBack(je)
-
-	for chatLog.Len() > maxChatLog {
-		e := chatLog.Front()
-		if e != nil {
-			chatLog.Remove(e)
-		}
-	}
-	chatMu.Unlock()
-
-	sendToAll(je)
-}
-
-func (c *Client) handleRegisterEvent(e JsonEvent) {
-
-	// TODO - validate password.
-	// TODO - handle this without a global lock.
-	passMu.Lock()
-	passMu.Unlock()
-
-	hash, err := bcrypt.GenerateFromPassword([]byte(e.Event), 14)
+	ct, err := gcm.Seal(nonce, nonce, []byte(name), nil), nil
 	if err != nil {
-		if err := wsSendEvent(c.ws, AuthError, "Internal authentication error."); err != nil {
-			c.logErrorf("Failed to register: %v\n", err.Error())
-		}
-		return
+		return "", err
 	}
 
-	ciphertext := hex.EncodeToString(hash)
+	return base64.URLEncoding.EncodeToString(ct), nil
+}
 
-	userFile := filepath.Join(*dataDir, "users", c.Name)
+func getName(cookie string, key *[32]byte) (string, error) {
 
-	user := User{Name: c.Name, Pass: ciphertext}
-
-	b, err := json.Marshal(&user)
+	ciphertext, err := base64.URLEncoding.DecodeString(cookie)
 	if err != nil {
-		wsSendEvent(c.ws, AuthError, "Internal authentication error.")
-		c.logErrorf("Failed to register: %v\n", err.Error())
-		return
+		return "", err
 	}
 
-	if err := ioutil.WriteFile(userFile, b, 0600); err != nil {
-		wsSendEvent(c.ws, AuthError, "Internal authentication error.")
-		c.logErrorf("Failed to register: %v\n", err.Error())
-		return
-	}
-
-	if err := wsSendEvent(c.ws, AuthOK, c.Token); err != nil {
-		c.logErrorf(err.Error())
-		return
-	}
-
-}
-
-func (c *Client) handleWebCommandEvent(e JsonEvent) {
-
-	permMu.Lock()
-	defer permMu.Unlock()
-
-	// For now we only have admin level commands.
-	if !c.Admin {
-		return
-	}
-
-	command := strings.Split(e.Event, " ")
-	if len(command) < 1 {
-		return
-	}
-
-	switch command[0] {
-	case "/disable":
-		c.logPrefixf("WEB_COMMAND", "%v\n", e.Event)
-		robotEnabled = false
-		return
-	case "/enable":
-		c.logPrefixf("WEB_COMMAND", "%v\n", e.Event)
-		robotEnabled = true
-		return
-	case "/god":
-		if len(command) != 3 {
-			return
-		}
-
-		switch command[1] {
-		case "enable":
-			godMode[command[2]] = true
-		case "disable":
-			delete(godMode, command[2])
-		default:
-			c.logPrefixf("WEB_COMMAND", "invalid god argument '%v'.\n", command[1])
-		}
-
-		return
-	default:
-		c.logPrefixf("WEB_COMMAND", "UNKNOWN:%v\n", e.Event)
-	}
-
-}
-
-func (c *Client) authCommandEvent(e JsonEvent) bool {
-
-	permMu.RLock()
-	defer permMu.RUnlock()
-
-	if _, ok := godMode[c.Name]; ok {
-		return true
-	}
-
-	return robotEnabled
-
-}
-
-func (c *Client) handleCommandEvent(e JsonEvent, events chan JsonEvent) {
-
-	if !c.authCommandEvent(e) {
-		return
-	}
-
-	// Sanity check, decode and encode before sending it to the robot.
-	var control webbot.RobotControl
-	if err := json.Unmarshal([]byte(e.Event), &control); err != nil {
-		c.logErrorf("Failed to decode command: %v\n", err)
-		return
-	}
-
-	c.logPrefixf("COMMAND", "%v\n", control)
-
-	je, err := jsonEvent(Command, control, c.userInfo())
+	block, err := aes.NewCipher(key[:])
 	if err != nil {
-		c.logErrorf("Failed to create jsonEvent: %v", err)
-		return
+		return "", err
 	}
 
-	select {
-	case events <- je:
-	default:
-		c.logPrefixf("SKIPPING", "command buffer full!\n")
-	}
-}
-
-func (c *Client) logPrefixf(prefix, format string, a ...interface{}) {
-
-	remoteAddr := "0"
-	if c.ws != nil {
-		remoteAddr = c.ws.Request().RemoteAddr
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
 	}
 
-	msg := fmt.Sprintf(format, a...)
-	log.Printf("%v:%v[%p] - %v - %v", remoteAddr, c.Name, c, prefix, msg)
-
-}
-
-func (c *Client) userInfo() UserInfo {
-	localPort := "0"
-	if c.ws != nil {
-		addr := c.ws.Request().RemoteAddr
-		hp := strings.Split(addr, ":")
-		if len(hp) == 2 {
-			localPort = hp[1]
-		}
+	if len(ciphertext) < gcm.NonceSize() {
+		return "", errors.New("malformed ciphertext")
 	}
 
-	return UserInfo{Name: c.Name, Id: fmt.Sprintf("%v:%v", c.Name, localPort)}
-}
-
-func (c *Client) logInfof(format string, a ...interface{}) {
-	c.logPrefixf("INFO", format, a...)
-}
-
-func (c *Client) logErrorf(format string, a ...interface{}) {
-	c.logPrefixf("ERROR", format, a...)
-}
-
-func chatDispatcher() {
-	for {
-		je := <-chatChan
-		sendAll(je)
-	}
-}
-
-func sendToAll(je JsonEvent) {
-	chatChan <- je
-}
-
-func sendAll(je JsonEvent) {
-
-	clientMu.RLock()
-	defer clientMu.RUnlock()
-
-	for _, m := range clients {
-		for c, _ := range m {
-			if len(c.To) > maxEvents-1 {
-				c.logErrorf("Dropping events!")
-				// TODO: notify the client that some events were dropped.
-				for len(c.To) != 0 {
-					<-c.To
-				}
-			}
-			c.To <- je
-		}
-	}
-}
-
-func clientVideoHandler(ws *websocket.Conn, events chan JsonEvent) {
-
-	defer ws.Close()
-
-	if err := sendJSMPHeader(ws); err != nil {
-		log.Printf("INFO: Video client ended: %v.\n", err.Error())
-		return
+	b, err := gcm.Open(nil,
+		ciphertext[:gcm.NonceSize()],
+		ciphertext[gcm.NonceSize():],
+		nil,
+	)
+	if err != nil {
+		return "", err
 	}
 
-	videoChan := make(chan []byte, maxVideo)
-	addVideoClient(videoChan, ws, events)
-	defer removeVideoClient(videoChan, events)
-
-	wsLogInfo(ws, "Video client connected.")
-	defer wsLogInfo(ws, "Video client disconnected.")
-
-	endChan := make(chan bool, 1)
-
-	// HACK HACK HACK HACK
-	// TODO - Remove this
-	go func() {
-		defer close(endChan)
-		for {
-			data := make([]byte, 1)
-			if err := websocket.Message.Receive(ws, data); err != nil {
-				return
-			}
-		}
-	}()
-
-	for {
-		select {
-		case data := <-videoChan:
-			if err := websocket.Message.Send(ws, data); err != nil {
-				wsLogError(ws, err.Error())
-				return
-			}
-		case _, ok := <-endChan:
-			if !ok {
-				return
-			}
-		}
-	}
-}
-
-func addVideoClient(v chan []byte, ws *websocket.Conn, events chan JsonEvent) {
-	clientMu.Lock()
-	defer clientMu.Unlock()
-	videoClients[v] = ws
-
-	if len(videoClients) == 1 {
-		event := JsonEvent{Type: StartVideo}
-		events <- event
-	}
-}
-
-func removeVideoClient(v chan []byte, events chan JsonEvent) {
-	clientMu.Lock()
-	defer clientMu.Unlock()
-	delete(videoClients, v)
-
-	if len(videoClients) == 0 {
-		event := JsonEvent{Type: StopVideo}
-		events <- event
-	}
-}
-
-func sendJSMPHeader(ws *websocket.Conn) error {
-
-	bb := new(bytes.Buffer)
-	bb.Write([]byte("jsmp"))
-	binary.Write(bb, binary.BigEndian, uint16(640))
-	binary.Write(bb, binary.BigEndian, uint16(480))
-
-	if err := websocket.Message.Send(ws, bb.Bytes()); err != nil {
-		return err
+	if len(b) == 0 {
+		return "", errors.New("Failed to get name.")
 	}
 
-	return nil
+	return string(b), nil
 }
 
-// TODO -- fix this logging stuff, its nasty.
+func genKey() *[32]byte {
+	randomKey := &[32]byte{}
+	_, err := io.ReadFull(rand.Reader, randomKey[:])
+	if err != nil {
+		log.Fatal(err)
+	}
 
-func logInfo(r *http.Request, msg string) {
-	log.Printf("INFO - %v - %v\n", r.RemoteAddr, msg)
-}
-
-func logError(r *http.Request, msg string) {
-	log.Printf("ERROR - %v - %v\n", r.RemoteAddr, msg)
-}
-
-func wsLogInfo(ws *websocket.Conn, msg string) {
-	wsLog(ws, fmt.Sprintf("INFO - %v - %v\n", ws.Request().RemoteAddr, msg))
-}
-
-func wsLogInfof(ws *websocket.Conn, format string, a ...interface{}) {
-	msg := fmt.Sprintf(format, a...)
-	wsLog(ws, fmt.Sprintf("INFO - %v - %v\n", ws.Request().RemoteAddr, msg))
-}
-
-func wsLogError(ws *websocket.Conn, msg string) {
-	wsLog(ws, fmt.Sprintf("ERROR - %v - %v\n", ws.Request().RemoteAddr, msg))
-}
-
-func wsLogErrorf(ws *websocket.Conn, format string, a ...interface{}) {
-	msg := fmt.Sprintf(format, a...)
-	wsLog(ws, fmt.Sprintf("ERROR - %v - %v\n", ws.Request().RemoteAddr, msg))
-}
-
-func wsLog(ws *websocket.Conn, msg string) {
-	log.Printf("%v", msg)
-}
-
-func formatedTime() string {
-	return time.Now().Format("03:04:05.000")
+	return randomKey
 }
