@@ -2,7 +2,6 @@
 class Robot {
 	
 	constructor(clientURL, videoURL, view, chatInput) {
-		console.log("Robot constructor"); 
 		this.clientURL = clientURL;
 		this.videoURL = videoURL;
 		this.view = view; 
@@ -21,7 +20,7 @@ class Robot {
 	Destroy() {
 
 		this.reconnect = false; 
-	
+
 		var elem = document.getElementById("chatLog");
 		if( elem != undefined && elem != null ) { 
 			var children = elem.children;
@@ -47,8 +46,6 @@ class Robot {
 		this.ws.binaryType = 'arraybuffer';
 		this.ws.robot = this; 
 		this.ws.onopen = function() {
-			
-			console.log("websocket open"); 
 		
 			this.infoCapz = 0; 
 			var elem = document.getElementById("conStatus");
@@ -158,12 +155,6 @@ class Robot {
 
 		this.lsh = th; 
 		this.lsl = tl;
-
-		if(online) {
-			console.log("Robot online.") 
-		} else {
-			console.log("Robot offline.") 
-		}
 
 		var view = document.getElementById("view"); 
 

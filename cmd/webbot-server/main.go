@@ -32,8 +32,6 @@ func main() {
 	hr := httpbot.NewRobot(true)
 	http.HandleFunc("/robot", func(w http.ResponseWriter, r *http.Request) {
 
-		// TODO: Auth.
-
 		log.Printf("Robot connected.\n")
 		defer log.Printf("Robot disconnected.\n")
 
@@ -42,8 +40,6 @@ func main() {
 	})
 
 	http.HandleFunc("/video", func(w http.ResponseWriter, r *http.Request) {
-
-		// TODO: Auth.
 
 		log.Printf("Video client connected.\n")
 		defer log.Printf("Video client disconnected.\n")
