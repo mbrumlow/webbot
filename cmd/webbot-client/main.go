@@ -51,6 +51,7 @@ func main() {
 	r.AddCtrlCap(
 		webbot.CtrlCap{
 			KeyCode: 37,
+			Help:    "Move Left",
 		},
 		1,
 		false,
@@ -92,6 +93,18 @@ func main() {
 		false,
 		func() error {
 			log.Printf("-- BACKWARD --\n")
+			return nil
+		},
+	)
+
+	r.AddCtrlCap(
+		webbot.CtrlCap{
+			KeyCode: 13,
+		},
+		1,
+		false,
+		func() error {
+			log.Printf("-- ENTER --\n")
 			return nil
 		},
 	)

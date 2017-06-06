@@ -19,8 +19,11 @@ import (
 )
 
 const (
+	ONLINE_CAP    = uint32(1)
+	OFFLINE_CAP   = uint32(2)
 	CHAT_CAP      = uint32(3)
 	COOK_CAP      = uint32(4)
+	DONE_CAP      = uint32(5)
 	INFO_CAP      = uint32(100)
 	CTRL_CAP      = uint32(101)
 	USER_CAP      = uint32(102)
@@ -265,11 +268,12 @@ func (r *Robot) keepVideoRunning() {
 		c := exec.Command(
 			"ffmpeg", "-loglevel", "8",
 			"-f", "v4l2", "-framerate", "25", "-video_size", "640x480", "-i", r.videoDev,
-			"-f", "alsa", "-ar", "44100", "-ac", "2", "-thread_queue_size", "12", "-i", "hw:1",
+			//"-f", "alsa", "-ar", "44100", "-ac", "2", "-thread_queue_size", "12", "-i", "hw:1",
+			//"-f", "alsa", "-ac", "2", "-i", "hw:0",
 			"-f", "mpegts",
-			"-codec:v", "mpeg1video", "-s", "640x480", "-b:v", "128k", "-bf", "0",
-			"-codec:a", "mp2", "-b:a", "32k",
-			"-muxdelay", "0.001",
+			"-codec:v", "mpeg1video", "-s", "640x480", "-b:v", "384k", "-bf", "0",
+			//"-codec:a", "mp2", "-b:a", "32k",
+			//"-muxdelay", "0.001",
 			fmt.Sprintf("tcp://%v", r.videoLn.Addr().String()))
 
 		c.Stdout = os.Stdout

@@ -470,25 +470,6 @@ class Robot {
 		node.setAttribute("coh", coh); 
 		node.setAttribute("col", col); 
 
-		/*
-		var node = document.createElement("div");
-		var p = document.createElement("p");
-		
-		p.setAttribute("style", "margin: 0px;" );
-
-		node.setAttribute("coh", coh); 
-		node.setAttribute("col", col); 
-
-		var spanNodeName = document.createElement("span"); 
-		spanNodeName.innerHTML = n + ": ";
-		spanNodeName.setAttribute("style", "font-weight: bold;" );
-		var spanNodeChat = document.createElement("span"); 
-		spanNodeChat.innerHTML = msg; 
-		p.appendChild(spanNodeName);
-		p.appendChild(spanNodeChat);
-		node.appendChild(p); 
-		*/ 
-
 		elem.appendChild(node); 
 		elem.scrollTop = elem.scrollHeight;
 
@@ -503,25 +484,6 @@ class Robot {
 		var node = this.newChatNode(n + ":", msg, false); 
 		node.setAttribute("coh", coh); 
 		node.setAttribute("col", col); 
-
-		/*
-		var node = document.createElement("div");
-		var p = document.createElement("p");
-		
-		p.setAttribute("style", "margin: 0px;" );
-
-		node.setAttribute("coh", coh); 
-		node.setAttribute("col", col); 
-		
-		var spanNodeName = document.createElement("span"); 
-		spanNodeName.innerHTML = n + ": ";
-		spanNodeName.setAttribute("style", "font-weight: bold;" );
-		var spanNodeChat = document.createElement("span"); 
-		spanNodeChat.innerHTML = msg; 
-		p.appendChild(spanNodeName);
-		p.appendChild(spanNodeChat);
-		node.appendChild(p); 
-		*/ 
 
 		for(var i = 0; i < children.length; i++) {
 			var lcoh = children[i].getAttribute("coh");
