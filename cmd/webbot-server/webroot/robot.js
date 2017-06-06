@@ -128,7 +128,6 @@ class Robot {
 			c.height = 480; 
 
 			var ctx = c.getContext("2d");
-			//ctx.translate(0.5, 0.5);
 
 			var style = "position: absolute; left: 0; top: 0; z-index: 1;";
 			c.setAttribute("style", style);
@@ -531,22 +530,27 @@ class Robot {
 	}
 
 	handleKey(e, d) {
+		
+		var chatInput = document.getElementById(this.chatInput); 
 				
 		if(d && e.keyCode == 13) {
 			e.preventDefault();
-			if( document.getElementById(this.chatInput).innerHTML != "" ) {
+			if( chatInput.innerHTML != "" ) {
 				this.sendChat(); 
 			}
 			return;
 		}
 
+		if( chatInput == document.activeElement && chatInput.innerHTML != "" ) {
+			return;
+		}
+		
 		if(this.ctrlMap[e.keyCode]) {
 			if(this.ctrlMap[e.keyCode] && 
 				this.ctrlMap[e.keyCode].cap.Alt == e.altKey && 
 				this.ctrlMap[e.keyCode].cap.Ctrl == e.ctrlKey && 
 				this.ctrlMap[e.keyCode].cap.Shift == e.shiftKey ) {
 		
-				e.preventDefault();
 
 				if(this.ctrlMap[e.keyCode].down != d) { 
 
@@ -566,6 +570,7 @@ class Robot {
 						dv.setUint32(12,0); 
 					}
 					this.ws.send(buf); 
+					e.preventDefault();
 				}
 			}
 		}
