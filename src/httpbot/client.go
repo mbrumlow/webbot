@@ -62,6 +62,7 @@ func (c *Client) Run(ws *websocket.Conn) {
 	}
 
 	c.sendUsers()
+	c.sendDone()
 
 	for {
 		msg, err := c.ReadMessage(ws, 1024)
@@ -160,6 +161,24 @@ func (c *Client) sendUsers() {
 
 		c.sendMessage(msg)
 	}
+}
+
+func (c *Client) sendDone() {
+
+	c.logf("Sending done!\n")
+
+	t := webbot.DONE_CAP
+	buf := make([]byte, 0, 4)
+	bb := bytes.NewBuffer(buf)
+
+	revision := atomic.AddUint64(&c.r.capTime, 1)
+	msg, err := util.Encode32TimeHeadBuf(t, revision, bb.Bytes())
+	if err != nil {
+		return
+	}
+
+	c.sendMessage(msg)
+
 }
 
 func (c *Client) handleClientMessage(msg []byte) ([]byte, bool) {

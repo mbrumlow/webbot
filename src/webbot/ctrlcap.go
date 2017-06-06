@@ -8,6 +8,7 @@ type CtrlCap struct {
 	Ctrl    bool
 	Shift   bool
 	Toggle  bool
+	Help    string
 
 	id       uint32
 	version  uint32

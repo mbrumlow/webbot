@@ -15,6 +15,8 @@ class Robot {
 		this.jsmpeg = null;  
 		this.infoCapz = 0; 
 		this.reconnect = true;
+		this.post = false;
+		this.initDone = false;
 	}
 
 	Destroy() {
@@ -42,15 +44,23 @@ class Robot {
 	}
 
 	Connect() {
+	
+
 		this.ws = new WebSocket(this.clientURL); 
 		this.ws.binaryType = 'arraybuffer';
 		this.ws.robot = this; 
 		this.ws.onopen = function() {
-		
-			this.infoCapz = 0; 
+	
+			this.robot.initDone = false;
+			this.robot.infoCapz = 0; 
 			var elem = document.getElementById("conStatus");
 			if(elem) {
 				elem.parentNode.removeChild(elem);
+			}
+		
+			if(!this.robot.post) {
+				this.robot.systemChat("help> ", "Type /help for information on commands and controsl."); 
+				this.robot.post = true;	
 			}
 
 		}
@@ -87,6 +97,9 @@ class Robot {
 				break;
 			case 4: 
 				this.handleCookCap(msg); 
+				break;
+			case 5: 
+				this.initDone = true; 
 				break;
 			case 100: 
 				this.handleInfoCapDef(msg);
@@ -139,7 +152,7 @@ class Robot {
 		ctx.clearRect(0, 0, c.width, c.height);   
 
 		ctx.fillStyle = "red";
-		ctx.fillText("Dissconnected", 5 , 472);
+		ctx.fillText("Disconnected", 5 , 472);
 	}
 	
 	handleStatus(data, online) {
@@ -258,7 +271,14 @@ class Robot {
 				tl: tl, 
 			}
 
+			if(this.initDone) 
+				this.systemChat(msg + " ", "has joined."); 
+
 		} else {
+			var user = this.activeUsers[idh][idl];
+			if(user != undefined && user != null)  { 
+				this.systemChat(user.name + " ", "has parted."); 
+			}
 			// TODO delete keys if empty. 
 			delete this.activeUsers[idh][idl]
 		}
@@ -446,6 +466,11 @@ class Robot {
 
 		var elem = document.getElementById(type);
 
+		var node = this.newChatNode(n + ":", msg, false); 
+		node.setAttribute("coh", coh); 
+		node.setAttribute("col", col); 
+
+		/*
 		var node = document.createElement("div");
 		var p = document.createElement("p");
 		
@@ -462,6 +487,7 @@ class Robot {
 		p.appendChild(spanNodeName);
 		p.appendChild(spanNodeChat);
 		node.appendChild(p); 
+		*/ 
 
 		elem.appendChild(node); 
 		elem.scrollTop = elem.scrollHeight;
@@ -472,7 +498,13 @@ class Robot {
 
 		var elem = document.getElementById(type);
 		var children = elem.children;
+		
+	
+		var node = this.newChatNode(n + ":", msg, false); 
+		node.setAttribute("coh", coh); 
+		node.setAttribute("col", col); 
 
+		/*
 		var node = document.createElement("div");
 		var p = document.createElement("p");
 		
@@ -489,11 +521,13 @@ class Robot {
 		p.appendChild(spanNodeName);
 		p.appendChild(spanNodeChat);
 		node.appendChild(p); 
+		*/ 
 
 		for(var i = 0; i < children.length; i++) {
 			var lcoh = children[i].getAttribute("coh");
 			var lcol = children[i].getAttribute("col");
-			if(lcoh > coh && lcol > col) {
+			var local = children[i].getAttribute("isLocal");
+			if(!local && lcoh > coh && lcol > col) {
 				elem.insertBefore(node, children[i]);
 				elem.scrollTop = elem.scrollHeight;	
 				return 
@@ -508,6 +542,122 @@ class Robot {
 
 	}
 
+	newChatNode(n, msg, local) {
+
+		var node = document.createElement("div");
+		var p = document.createElement("p");
+		
+		p.setAttribute("style", "margin: 0px;" );
+		
+		node.setAttribute("local", local); 
+		
+		var spanNodeName = document.createElement("span"); 
+		spanNodeName.innerHTML = n;
+		spanNodeName.setAttribute("style", "font-weight: bold;" );
+		var spanNodeChat = document.createElement("span"); 
+		spanNodeChat.innerHTML = msg; 
+		p.appendChild(spanNodeName);
+		p.appendChild(spanNodeChat);
+		node.appendChild(p); 
+
+		return node;
+	}
+
+
+	systemChat(name, msg) {
+		var node = this.newChatNode(name, msg, true); 	
+		var elem = document.getElementById("chatLog");
+		elem.appendChild(node); 
+		elem.scrollTop = elem.scrollHeight;
+	}
+
+	handleHelp() {
+		
+		this.systemChat("> ", "/help"); 
+		
+		this.systemChat("help> ", "command"); 
+		this.systemChat("command> ", "/help - This menu."); 
+		this.systemChat("command> ", "/users - List users."); 
+		
+		this.systemChat("help> ", "control"); 
+		
+		for (var key in this.ctrlMap) {
+			if (!this.ctrlMap.hasOwnProperty(key)) {
+				continue;
+			}
+
+			var cap = this.ctrlMap[key].cap; 
+
+			if(cap.KeyCode < 8) 
+				continue;
+
+			var msg = ""; 
+
+			if(cap.Alt) {
+				msg = "alt"+msg; 
+			}
+
+			if(cap.Shift) {
+				if(msg.length > 0)
+					msg += "+"
+				msg += "shift"; 
+			}
+			
+			if(cap.Ctrl) {
+				if(msg.length > 0)
+					msg += "+"
+				msg += "ctrl"; 
+			}
+				
+			if(msg.length > 0)
+				msg += "+"
+	
+			msg += getKeyName(cap.KeyCode); 
+			
+			if(cap.Help != undefined && cap.Help != null && cap.Help.length > 0)
+				msg += " | " + cap.Help;	
+
+			this.systemChat("control> ", msg); 
+
+		}
+
+	}
+	
+	handleUsers() {
+		
+		this.systemChat("> ", "/users"); 
+		
+		var map = {};
+		var userCount = 0; 
+		var connCount = 0; 
+		for (var a in this.activeUsers) {
+			if (!this.activeUsers.hasOwnProperty(a)) {
+				continue;
+			}
+		
+			for (var b in this.activeUsers[a]) {
+
+				if (!this.activeUsers[a].hasOwnProperty(b)) {
+					continue;
+				}
+				
+				var user = this.activeUsers[a][b]; 
+
+				connCount++; 
+
+				if(map[user.name] == undefined){
+					this.systemChat("user> ", user.name); 
+					userCount++;
+					map[user.name] = true;
+				}
+			}
+		}
+
+		this.systemChat("> ", userCount + " uniqe users."); 
+		this.systemChat("> ", connCount + " connections."); 
+	}
+
+
 	sendChat() {
 		
 		if( document.getElementById(this.chatInput).innerHTML == "" ) {
@@ -515,6 +665,19 @@ class Robot {
 		}
 
 		var str = document.getElementById(this.chatInput).innerHTML.replace(/&nbsp;/gi, '');;
+
+		if(str.startsWith("/help")) {
+			this.handleHelp(); 
+			document.getElementById(this.chatInput).innerHTML = ""; 
+			return;
+		}
+		
+		if(str.startsWith("/users")) {
+			this.handleUsers(); 
+			document.getElementById(this.chatInput).innerHTML = ""; 
+			return;
+		}
+
 		var buf = new ArrayBuffer(8 + str.length*2);
 		var dv = new DataView(buf);
 		dv.setUint32(0, buf.byteLength - 4); 
@@ -577,4 +740,153 @@ class Robot {
 	}
 }
 
+function getKeyName(code) {
 
+	switch(code) {
+		
+		case 8:
+	        return 'backspace';
+		case 9:
+	        return 'tab';
+		case 13:
+	        return 'enter';
+		case 16:
+	        return 'shift';
+		case 17:
+	        return 'ctrl';
+		case 18:
+	        return 'alt';
+		case 19:
+	        return 'pause/break';
+		case 20:
+	        return 'caps lock';
+		case 27:
+	        return 'esc';
+		case 32:
+	        return 'space';
+		case 33:
+	        return 'page up';
+		case 34:
+	        return 'page down';
+		case 35:
+	        return 'end';
+		case 36:
+	        return 'home';
+		case 37:
+	        return 'left';
+		case 38:
+	        return 'up';
+		case 39:
+	        return 'right';
+		case 40:
+	        return 'down';
+		case 45:
+	        return 'insert';
+		case 46:
+	        return 'delete';
+		case 65: 
+			return 'a'; 
+		case 66: 
+			return 'b';
+		case 67: 
+			return "c"; 
+		case 68: 
+			return "d"; 
+		case 69: 
+			return "e"; 
+		case 70: 
+			return "f"; 
+		case 71: 
+			return "g"; 
+		case 72: 
+			return "h"; 
+		case 73: 
+			return "i"; 
+		case 74: 
+			return "j"; 
+		case 75: 
+			return "k"; 
+		case 76: 
+			return "l"; 
+		case 77: 
+			return "m"; 
+		case 78: 
+			return "n"; 
+		case 79: 
+			return "o"; 
+		case 80: 
+			return "p"; 
+		case 81: 
+			return "q"; 
+		case 82: 
+			return "r"; 
+		case 83: 
+			return "s"; 
+		case 84: 
+			return "t"; 
+		case 85: 
+			return "u"; 
+		case 86: 
+			return "v"; 
+		case 87: 
+			return "w"; 
+		case 88: 
+			return "x"; 
+		case 89: 
+			return "y"; 
+		case 90: 
+			return "z"; 
+		case 91:
+	        return 'command';
+		case 91:
+	        return 'left command';
+		case 93:
+	        return 'right command';
+		case 106:
+	        return 'numpad *';
+		case 107:
+	        return 'numpad +';
+		case 109:
+	        return 'numpad -';
+		case 110:
+	        return 'numpad .';
+		case 111:
+	        return 'numpad /';
+		case 144:
+	        return 'num lock';
+		case 145:
+	        return 'scroll lock';
+		case 182:
+	        return 'my computer';
+		case 183:
+	        return 'my calculator';
+		case 186:
+	        return ';';
+		case 187:
+	        return '=';
+		case 188:
+	        return ',';
+		case 189:
+	        return '-';
+		case 190:
+	        return '.';
+		case 191:
+	        return '/';
+		case 192:
+	        return '`';
+		case 219:
+	        return '[';
+		case 220:
+	        return '\\';
+		case 221:
+	        return ']';
+		case 222:
+	        return "'";
+	}
+
+
+	if(code >= 48 && code < 58) 
+		return code - 48; 
+
+
+}

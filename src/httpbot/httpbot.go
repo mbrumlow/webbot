@@ -69,7 +69,7 @@ func NewRobot(debug bool) *Robot {
 	}
 
 	// Initialize with robot offline.
-	r.robotCapHandler(true, 2, make([]byte, 0))
+	r.robotCapHandler(true, webbot.OFFLINE_CAP, make([]byte, 0))
 
 	atomic.StoreUint64(&r.chatOrder, uint64(time.Now().Unix()))
 
@@ -104,7 +104,7 @@ func (r *Robot) Robot(ws *websocket.Conn) {
 
 	// Let the clients know that the robot is coming on line.
 	{
-		forward, buf := r.robotCapHandler(true, 1, make([]byte, 0))
+		forward, buf := r.robotCapHandler(true, webbot.ONLINE_CAP, make([]byte, 0))
 		r.robotForwarder(forward, buf)
 	}
 
