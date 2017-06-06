@@ -532,13 +532,13 @@ class Robot {
 	handleKey(e, d) {
 		
 		var chatInput = document.getElementById(this.chatInput); 
-				
+			
 		if(d && e.keyCode == 13) {
-			e.preventDefault();
 			if( chatInput.innerHTML != "" ) {
 				this.sendChat(); 
+				e.preventDefault();
+				return;
 			}
-			return;
 		}
 
 		if( chatInput == document.activeElement && chatInput.innerHTML != "" ) {
