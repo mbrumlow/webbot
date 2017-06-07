@@ -37,10 +37,16 @@ class Robot {
 			this.ws.close(); 
 		}	
 	
-		if(this.jsmpeg != undefined || this.jsmpeg != null) { 
+		if(this.jsmpeg != undefined && this.jsmpeg != null) { 
 			this.jsmpeg.destroy();
 			this.jsmpeg = null; 
 		}
+
+		var view = document.getElementById("view"); 
+		while (view != undefined && view != null && view.firstChild) {
+			view.removeChild(view.firstChild);
+		}
+		
 	}
 
 	Connect() {
@@ -59,7 +65,7 @@ class Robot {
 			}
 		
 			if(!this.robot.post) {
-				this.robot.systemChat("help> ", "Type /help for information on commands and controsl."); 
+				this.robot.systemChat("help> ", "Type /help for information on commands."); 
 				this.robot.post = true;	
 			}
 
@@ -536,12 +542,55 @@ class Robot {
 	handleHelp() {
 		
 		this.systemChat("> ", "/help"); 
+		this.systemChat("> ", "Displaying help text."); 
 		
 		this.systemChat("help> ", "command"); 
-		this.systemChat("command> ", "/help - This menu."); 
+		this.systemChat("command> ", "/help - Displays this help text."); 
 		this.systemChat("command> ", "/users - List users."); 
+		this.systemChat("command> ", "/controls - List keyboard controls."); 
+		this.systemChat("info> ", "You control the robot with keyboard shortcuts."); 
+
+	}
+	
+	handleUsers() {
 		
-		this.systemChat("help> ", "control"); 
+		this.systemChat("> ", "/users"); 
+		this.systemChat("> ", "Listing users."); 
+		
+		var map = {};
+		var userCount = 0; 
+		var connCount = 0; 
+		for (var a in this.activeUsers) {
+			if (!this.activeUsers.hasOwnProperty(a)) {
+				continue;
+			}
+		
+			for (var b in this.activeUsers[a]) {
+
+				if (!this.activeUsers[a].hasOwnProperty(b)) {
+					continue;
+				}
+				
+				var user = this.activeUsers[a][b]; 
+
+				connCount++; 
+
+				if(map[user.name] == undefined){
+					this.systemChat("user> ", user.name); 
+					userCount++;
+					map[user.name] = true;
+				}
+			}
+		}
+
+		this.systemChat("> ", userCount + " unique users."); 
+		this.systemChat("> ", connCount + " connections."); 
+	}
+
+	handleControls() {
+
+		this.systemChat("> ", "/controls"); 
+		this.systemChat("> ", "Listing keyboard controls."); 
 		
 		for (var key in this.ctrlMap) {
 			if (!this.ctrlMap.hasOwnProperty(key)) {
@@ -584,41 +633,6 @@ class Robot {
 		}
 
 	}
-	
-	handleUsers() {
-		
-		this.systemChat("> ", "/users"); 
-		
-		var map = {};
-		var userCount = 0; 
-		var connCount = 0; 
-		for (var a in this.activeUsers) {
-			if (!this.activeUsers.hasOwnProperty(a)) {
-				continue;
-			}
-		
-			for (var b in this.activeUsers[a]) {
-
-				if (!this.activeUsers[a].hasOwnProperty(b)) {
-					continue;
-				}
-				
-				var user = this.activeUsers[a][b]; 
-
-				connCount++; 
-
-				if(map[user.name] == undefined){
-					this.systemChat("user> ", user.name); 
-					userCount++;
-					map[user.name] = true;
-				}
-			}
-		}
-
-		this.systemChat("> ", userCount + " uniqe users."); 
-		this.systemChat("> ", connCount + " connections."); 
-	}
-
 
 	sendChat() {
 		
@@ -636,6 +650,12 @@ class Robot {
 		
 		if(str.startsWith("/users")) {
 			this.handleUsers(); 
+			document.getElementById(this.chatInput).innerHTML = ""; 
+			return;
+		}
+		
+		if(str.startsWith("/controls")) {
+			this.handleControls(); 
 			document.getElementById(this.chatInput).innerHTML = ""; 
 			return;
 		}
