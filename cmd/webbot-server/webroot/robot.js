@@ -472,7 +472,7 @@ class Robot {
 
 		var elem = document.getElementById(type);
 
-		var node = this.newChatNode(n + ":", msg, false); 
+		var node = this.newChatNode(n + ": ", msg, false); 
 		node.setAttribute("coh", coh); 
 		node.setAttribute("col", col); 
 
