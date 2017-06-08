@@ -49,7 +49,7 @@ type Robot struct {
 	ctrlDef  map[uint32]CtrlCap
 
 	videoLock    sync.Mutex
-	videoLn      net.Listener
+	videoLn      *net.TCPListener
 	videoCmd     *exec.Cmd
 	videoRunning bool
 }
@@ -109,28 +109,48 @@ func (r *Robot) Run() error {
 	// Start the shutdown process.
 	close(outDone)
 
+	drainChan := make(chan struct{})
+	go r.drainChan(drainChan)
+
 	r.logf("Shutting down video.")
 	r.disableVideo()
 
 	r.logf("Shutting down workers.")
 	close(r.doneChan)
 
+	r.logf("Changing state to not running.")
 	r.mu.Lock()
 	r.running = false
 	r.mu.Unlock()
 
-	r.logf("Waiting for handler.\n")
-	<-errChan
-
-	r.logf("Draining message channel.\n")
-	close(r.msgChan)
-	util.DrainChan(r.msgChan, func() {})
-
 	r.logf("Waiting for workers to finish.\n")
 	r.wg.Wait()
 
+	r.logf("Shutting down message channel.\n")
+	close(r.msgChan)
+
+	r.logf("Waiting for channel drainer.\n")
+	<-drainChan
+
+	r.logf("Waiting for handler.\n")
+	<-errChan
+
 	r.logf("Robot connection shutdown.\n")
 	return err
+}
+
+func (r *Robot) drainChan(done chan struct{}) {
+	r.logf("Starting channel drain.")
+	defer r.logf("Finished draining the channel.")
+	for {
+		select {
+		case _, ok := <-r.msgChan:
+			if !ok {
+				close(done)
+				return
+			}
+		}
+	}
 }
 
 func (r *Robot) initCaps() {
@@ -157,6 +177,12 @@ func (r *Robot) msgInHandler(ws *websocket.Conn, errChan chan error) {
 			return
 		}
 
+		if msgSize == 0 {
+			r.logf("Message of size zero!\n")
+			errChan <- fmt.Errorf("EOF zero size message.")
+			return
+		}
+
 		msg := make([]byte, msgSize)
 		if _, err := io.ReadFull(ws, msg); err != nil {
 			errChan <- fmt.Errorf("In Handler error: %v", err)
@@ -168,7 +194,7 @@ func (r *Robot) msgInHandler(ws *websocket.Conn, errChan chan error) {
 		var t uint32
 		if err := binary.Read(bb, binary.BigEndian, &t); err != nil {
 			// If this fails we are already in trouble.
-			panic(err)
+			panic(fmt.Sprintf("Failed to read message of %v size from %v sized buffer:%v\n", 4, len(msg), err))
 		}
 
 		switch t {
@@ -211,12 +237,24 @@ func (r *Robot) enableVideo() {
 
 	r.logf("Enabling video.")
 
+	r.mu.Lock()
+	if !r.running {
+		r.mu.Unlock()
+		return
+	}
+	r.wg.Add(1)
+	r.mu.Unlock()
+
 	r.videoLock.Lock()
 	defer r.videoLock.Unlock()
 
-	ready := make(chan bool, 1)
+	ready := make(chan error, 1)
 	go r.startVideoServer(ready)
-	<-ready
+	err := <-ready
+	if err != nil {
+		r.logf("Failed to start video server: %v\n", err)
+		return
+	}
 
 	r.videoRunning = true
 
@@ -257,6 +295,14 @@ func (r *Robot) keepVideoRunning() {
 			return
 		}
 
+		r.mu.Lock()
+		if !r.running {
+			r.mu.Unlock()
+			r.videoLock.Unlock()
+			return
+		}
+		r.mu.Unlock()
+
 		if !first {
 			r.logf("Restarting video.\n")
 		} else {
@@ -267,11 +313,11 @@ func (r *Robot) keepVideoRunning() {
 
 		c := exec.Command(
 			"ffmpeg", "-loglevel", "8",
-			"-f", "v4l2", "-framerate", "25", "-video_size", "640x480", "-i", r.videoDev,
+			"-f", "v4l2", "-framerate", "35", "-video_size", "640x480", "-i", r.videoDev,
 			//"-f", "alsa", "-ar", "44100", "-ac", "2", "-thread_queue_size", "12", "-i", "hw:1",
 			//"-f", "alsa", "-ac", "2", "-i", "hw:0",
 			"-f", "mpegts",
-			"-codec:v", "mpeg1video", "-s", "640x480", "-b:v", "384k", "-bf", "0",
+			"-codec:v", "mpeg1video", "-s", "640x480", "-b:v", "384k", "-crf", "23", "-bf", "0",
 			//"-codec:a", "mp2", "-b:a", "32k",
 			//"-muxdelay", "0.001",
 			fmt.Sprintf("tcp://%v", r.videoLn.Addr().String()))
@@ -290,18 +336,28 @@ func (r *Robot) keepVideoRunning() {
 	}
 }
 
-func (r *Robot) startVideoServer(ready chan bool) {
+func (r *Robot) startVideoServer(ready chan error) {
 
-	ln, err := net.Listen("tcp", ":0")
+	defer r.wg.Done()
+
+	addrs := &net.TCPAddr{
+		IP:   net.IPv4(127, 0, 0, 1),
+		Port: 0,
+	}
+
+	ln, err := net.ListenTCP("tcp4", addrs)
 	if err != nil {
 		r.logf("Failed to bind to port: %v", err)
+		ready <- err
+		return
 	}
 
 	r.videoLn = ln
-	ready <- true
+	ready <- nil
 
 	// Non obvious, we really only want one connection...
 	for {
+		ln.SetDeadline(time.Now().Add(10 * time.Second))
 		conn, err := ln.Accept()
 		if err != nil {
 			r.videoLock.Lock()
@@ -311,11 +367,18 @@ func (r *Robot) startVideoServer(ready chan bool) {
 			} else {
 				r.logf("Failed to accept connection: %v", err)
 			}
+			r.videoLock.Unlock()
 			return
 		}
 
-		r.logf("Received video connection.")
+		r.mu.Lock()
+		if !r.running {
+			r.mu.Unlock()
+			return
+		}
+		r.mu.Unlock()
 
+		r.logf("Received video connection.")
 		if err := r.handleVideoConnection(conn); err != nil {
 			r.logf("Video connection failed: %v", err)
 		}
@@ -331,6 +394,7 @@ func (r *Robot) handleVideoConnection(conn net.Conn) error {
 	buf := make([]byte, 512)
 
 	for {
+		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 		size, err := conn.Read(buf)
 		if err == io.EOF {
 			return nil
@@ -396,6 +460,8 @@ func (r *Robot) handleCtrlCap(msg []byte) {
 }
 
 func (r *Robot) msgOutHandler(ws *websocket.Conn, msgChan <-chan []byte, done <-chan struct{}, errChan chan error) {
+
+	defer r.logf("Leaving msgOutHandler")
 
 	for {
 		select {

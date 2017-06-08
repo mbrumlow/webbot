@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"sync/atomic"
+	"time"
 
 	"golang.org/x/net/websocket"
 
@@ -29,7 +30,7 @@ func main() {
 		log.Println(http.ListenAndServe("localhost:6061", nil))
 	}()
 
-	hr := httpbot.NewRobot(true)
+	hr := httpbot.NewRobot("webbot", 10*time.Second, true)
 	http.HandleFunc("/robot", func(w http.ResponseWriter, r *http.Request) {
 
 		log.Printf("Robot connected.\n")

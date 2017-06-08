@@ -487,7 +487,7 @@ class Robot {
 		var children = elem.children;
 		
 	
-		var node = this.newChatNode(n + ":", msg, false); 
+		var node = this.newChatNode(n + ": ", msg, false); 
 		node.setAttribute("coh", coh); 
 		node.setAttribute("col", col); 
 
@@ -656,6 +656,11 @@ class Robot {
 		
 		if(str.startsWith("/controls")) {
 			this.handleControls(); 
+			document.getElementById(this.chatInput).innerHTML = ""; 
+			return;
+		}
+
+		if(str.startsWith("/")) {
 			document.getElementById(this.chatInput).innerHTML = ""; 
 			return;
 		}

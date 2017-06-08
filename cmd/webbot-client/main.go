@@ -6,6 +6,9 @@ import (
 	"log"
 	"time"
 	"webbot"
+
+	"net/http"
+	_ "net/http/pprof"
 )
 
 var host = flag.String("host", "ws://localhost:8888/robot", "Robot Web Control (rwc) host.")
@@ -15,6 +18,10 @@ var key = flag.String("key", "", "Api key to webbot host.")
 func main() {
 
 	flag.Parse()
+
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
 
 	r := webbot.NewRobot(*host, *video, *key, true)
 
@@ -148,6 +155,7 @@ func main() {
 	)
 
 	for {
+		log.Println("--------------------------------------------------------------------------------")
 		log.Println(r.Run())
 		time.Sleep(3 * time.Second)
 	}

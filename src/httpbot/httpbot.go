@@ -16,6 +16,9 @@ import (
 )
 
 type Robot struct {
+	name    string
+	timeout time.Duration
+
 	clientLock sync.RWMutex
 	clients    map[*Client]bool
 
@@ -54,8 +57,10 @@ type clog struct {
 	log   uint64
 }
 
-func NewRobot(debug bool) *Robot {
+func NewRobot(name string, timeout time.Duration, debug bool) *Robot {
 	r := &Robot{
+		name:         name,
+		timeout:      timeout,
 		capMap:       make(map[uint32][]byte),
 		capCache:     make(map[uint32][]byte),
 		capGroup:     make(map[uint32]uint32),
@@ -143,11 +148,6 @@ func (r *Robot) Robot(ws *websocket.Conn) {
 	r.logf("Waiting for handler.\n")
 	<-errChan
 
-	// TODO flush robot controls when robot goes off line.
-	// robotForwarder( buf describing disconnect )
-
-	// TODO define custom cap signaling disconnected.
-
 	r.capLock.Lock()
 	r.capMap = make(map[uint32][]byte)
 	r.capCache = make(map[uint32][]byte)
@@ -182,6 +182,10 @@ func (r *Robot) unlock() {
 func (r *Robot) fromRobot(ws *websocket.Conn, errChan chan error) {
 	for {
 
+		if err := ws.SetReadDeadline(time.Now().Add(r.timeout)); err != nil {
+			errChan <- err
+			return
+		}
 		msg, err := util.ReadMessage(ws, 4096)
 		if err != nil {
 			errChan <- err
@@ -205,6 +209,10 @@ func (r *Robot) toRobot(done <-chan struct{}, ws *websocket.Conn, errChan chan e
 	for {
 		select {
 		case msg := <-r.msgChan:
+			if err := ws.SetWriteDeadline(time.Now().Add(r.timeout)); err != nil {
+				errChan <- err
+				return
+			}
 			if err := r.writeMsg(ws, msg); err != nil {
 				errChan <- err
 				return
@@ -428,15 +436,10 @@ func (r *Robot) robotVideoHandler(forward bool, id uint32, buf []byte) (bool, []
 // Handles dealing with any custom events that have server side requirements.
 func (r *Robot) robotCapHandler(forward bool, t uint32, buf []byte) (bool, []byte) {
 
-	// TODO all caps for replay on client connect. We will want to save these
-	// with connection ID so the client can ignore out of order sends.
-
 	switch t {
 	case webbot.VIDEO_BUF_CAP:
 		r.relayVideo(buf)
 		return false, nil
-		//msg, _ := util.Encode32HeadBuf(t, buf)
-		//return true, msg
 	case webbot.INFO_CAP:
 		fallthrough
 	case webbot.CTRL_CAP:
@@ -562,6 +565,6 @@ func (r *Robot) writeMsg(ws *websocket.Conn, msg []byte) error {
 func (r *Robot) logf(format string, v ...interface{}) {
 	if r.debug && r.logger != nil {
 		l := fmt.Sprintf(format, v...)
-		r.logger.Printf("R[%p]: %v", r, l)
+		r.logger.Printf("R[%v]: %v", r.name, l)
 	}
 }
