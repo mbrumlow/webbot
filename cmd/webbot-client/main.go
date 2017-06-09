@@ -23,7 +23,12 @@ func main() {
 		log.Println(http.ListenAndServe("localhost:6060", nil))
 	}()
 
-	r := webbot.NewRobot(*host, *video, *key, true)
+	ffmpeg := webbot.FFMPEG{
+		VideoDriver: "v4l2",
+		VideoDev:    *video,
+	}
+
+	r := webbot.NewRobot(*host, *key, ffmpeg, true)
 
 	r.AddInfoCap(
 		webbot.InfoCap{

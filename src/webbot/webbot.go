@@ -39,6 +39,8 @@ type Robot struct {
 	logger   *log.Logger
 	videoDev string
 
+	ffmpeg FFMPEG
+
 	mu       sync.Mutex
 	wg       sync.WaitGroup
 	msgChan  chan []byte
@@ -54,16 +56,25 @@ type Robot struct {
 	videoRunning bool
 }
 
-func NewRobot(url, videoDev, key string, debug bool) *Robot {
+type FFMPEG struct {
+	VideoDriver  string
+	VideoOptions []string
+	VideoDev     string
+	AudioDriver  string
+	AudioOptions []string
+	AudioDev     string
+}
+
+func NewRobot(url, key string, ffmpeg FFMPEG, debug bool) *Robot {
 	return &Robot{
-		url:      url,
-		key:      key,
-		videoDev: videoDev,
-		debug:    debug,
-		nextID:   1024,
-		ctrlCap:  make(map[uint32]CtrlCap),
-		ctrlDef:  make(map[uint32]CtrlCap),
-		logger:   log.New(os.Stderr, "", log.LstdFlags),
+		url:     url,
+		key:     key,
+		ffmpeg:  ffmpeg,
+		debug:   debug,
+		nextID:  1024,
+		ctrlCap: make(map[uint32]CtrlCap),
+		ctrlDef: make(map[uint32]CtrlCap),
+		logger:  log.New(os.Stderr, "", log.LstdFlags),
 	}
 }
 
@@ -311,16 +322,31 @@ func (r *Robot) keepVideoRunning() {
 
 		r.logf("Running video command.")
 
-		c := exec.Command(
-			"ffmpeg", "-loglevel", "8",
-			"-f", "v4l2", "-framerate", "35", "-video_size", "640x480", "-i", r.videoDev,
-			//"-f", "alsa", "-ar", "44100", "-ac", "2", "-thread_queue_size", "12", "-i", "hw:1",
-			//"-f", "alsa", "-ac", "2", "-i", "hw:0",
-			"-f", "mpegts",
-			"-codec:v", "mpeg1video", "-s", "640x480", "-b:v", "384k", "-crf", "23", "-bf", "0",
-			//"-codec:a", "mp2", "-b:a", "32k",
-			//"-muxdelay", "0.001",
-			fmt.Sprintf("tcp://%v", r.videoLn.Addr().String()))
+		args := make([]string, 0)
+
+		args = append(args, "-loglevel", "8")
+		args = append(args, "-f", r.ffmpeg.VideoDriver)
+		args = append(args, "-framerate", "25", "-video_size", "640x480")
+		args = append(args, r.ffmpeg.VideoOptions...)
+		args = append(args, "-i", r.ffmpeg.VideoDev)
+
+		if r.ffmpeg.AudioDriver != "" {
+			args = append(args, "-f", r.ffmpeg.AudioDriver)
+			args = append(args, r.ffmpeg.AudioOptions...)
+			args = append(args, "-i", r.ffmpeg.AudioDev)
+		}
+
+		args = append(args, "-f", "mpegts")
+		args = append(args, "-codec:v", "mpeg1video", "-s", "640x480", "-b:v", "384k", "-crf", "23", "-bf", "0")
+
+		if r.ffmpeg.AudioDriver != "" {
+			args = append(args, "-codec:a", "mp2", "-b:a", "32k")
+			args = append(args, "-muxdelay", "0.001")
+		}
+
+		args = append(args, fmt.Sprintf("tcp://%v", r.videoLn.Addr().String()))
+
+		c := exec.Command("ffmpeg", args...)
 
 		c.Stdout = os.Stdout
 		c.Stderr = os.Stderr
