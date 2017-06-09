@@ -685,8 +685,8 @@ class Robot {
 			
 		if(d && e.keyCode == 13) {
 			if( chatInput.innerHTML != "" ) {
-				this.sendChat(); 
 				e.preventDefault();
+				this.sendChat(); 
 				return;
 			}
 		}
@@ -695,36 +695,38 @@ class Robot {
 			return;
 		}
 		
-		if(this.ctrlMap[e.keyCode]) {
-			if(this.ctrlMap[e.keyCode] && 
-				this.ctrlMap[e.keyCode].cap.Alt == e.altKey && 
-				this.ctrlMap[e.keyCode].cap.Ctrl == e.ctrlKey && 
-				this.ctrlMap[e.keyCode].cap.Shift == e.shiftKey ) {
-		
+		if(this.ctrlMap[e.keyCode] && 
+			this.ctrlMap[e.keyCode].cap.Alt == e.altKey && 
+			this.ctrlMap[e.keyCode].cap.Ctrl == e.ctrlKey && 
+			this.ctrlMap[e.keyCode].cap.Shift == e.shiftKey ) {
+					
+			e.preventDefault();
 
-				if(this.ctrlMap[e.keyCode].down != d) { 
+			if(this.ctrlMap[e.keyCode].down != d) { 
 
-					this.ctrlMap[e.keyCode].down = d;
-					if(this.ctrlMap[e.keyCode].cap.Toggle && !d) { 
-						return
-					}
-
-					var buf = new ArrayBuffer(16);
-					var dv = new DataView(buf);
-					dv.setUint32(0, 12); 
-					dv.setUint32(4, 101); // CTRL CAP
-					dv.setUint32(8, this.ctrlMap[e.keyCode].id); 
-					if(d) { 
-						dv.setUint32(12,1); 
-					} else {
-						dv.setUint32(12,0); 
-					}
-					this.ws.send(buf); 
-					e.preventDefault();
+				this.ctrlMap[e.keyCode].down = d;
+				if(this.ctrlMap[e.keyCode].cap.Toggle && !d) { 
+					return;
 				}
-			}
+
+				var buf = new ArrayBuffer(16);
+				var dv = new DataView(buf);
+				dv.setUint32(0, 12); 
+				dv.setUint32(4, 101); // CTRL CAP
+				dv.setUint32(8, this.ctrlMap[e.keyCode].id); 
+				if(d) { 
+					dv.setUint32(12,1); 
+				} else {
+					dv.setUint32(12,0); 
+				}
+				this.ws.send(buf); 
+			}	
+
+			return;
 		}
+	
 	}
+
 }
 
 function getKeyName(code) {
