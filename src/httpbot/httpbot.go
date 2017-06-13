@@ -134,6 +134,9 @@ func (r *Robot) Robot(ws *websocket.Conn) {
 	err := <-errChan
 	r.logf("Handler error: %v\n", err)
 
+	r.logf("Closing socket.\n")
+	ws.Close()
+
 	// Start the shutdown process.
 	close(done)
 
@@ -186,6 +189,7 @@ func (r *Robot) fromRobot(ws *websocket.Conn, errChan chan error) {
 			errChan <- err
 			return
 		}
+
 		msg, err := util.ReadMessage(ws, 4096)
 		if err != nil {
 			errChan <- err
@@ -437,6 +441,8 @@ func (r *Robot) robotVideoHandler(forward bool, id uint32, buf []byte) (bool, []
 func (r *Robot) robotCapHandler(forward bool, t uint32, buf []byte) (bool, []byte) {
 
 	switch t {
+	case webbot.PING_CAP:
+		return false, nil
 	case webbot.VIDEO_BUF_CAP:
 		r.relayVideo(buf)
 		return false, nil
