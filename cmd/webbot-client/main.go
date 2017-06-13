@@ -161,7 +161,9 @@ func main() {
 
 	for {
 		log.Println("--------------------------------------------------------------------------------")
-		log.Println(r.Run())
+		if err := r.Run(); err != nil {
+			log.Printf("Robot Error: %v\n", err)
+		}
 		time.Sleep(3 * time.Second)
 	}
 }

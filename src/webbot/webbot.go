@@ -42,6 +42,9 @@ type Robot struct {
 
 	ffmpeg FFMPEG
 
+	muConnected sync.Mutex
+	connected   bool
+
 	mu       sync.Mutex
 	wg       sync.WaitGroup
 	msgChan  chan []byte
@@ -96,21 +99,20 @@ func (r *Robot) Run() error {
 	}
 	defer ws.Close()
 
-	outDone := make(chan struct{}, 1)
 	errChan := make(chan error, 1)
 
-	r.logf("Setting up.")
+	r.logf("Starting up.")
 
 	// Start all the processing threads.
 	r.mu.Lock()
 	r.msgChan = make(chan []byte, 1)
 	r.doneChan = make(chan struct{})
 	r.running = true
-	r.wg.Add(2)
+	r.wg.Add(2) // initCaps, ping
 	r.mu.Unlock()
 
 	go r.msgInHandler(ws, errChan)
-	go r.msgOutHandler(ws, r.msgChan, outDone, errChan)
+	go r.msgOutHandler(ws, errChan)
 	go r.initCaps()
 	go r.ping()
 
@@ -122,14 +124,6 @@ func (r *Robot) Run() error {
 
 	r.logf("Closing socket.\n")
 	ws.Close()
-
-	// Start the shutdown process.
-	r.logf("Starting shutdown process.\n")
-	close(outDone)
-
-	r.logf("Channel drainer started.\n")
-	drainChan := make(chan struct{})
-	go r.drainChan(drainChan)
 
 	r.logf("Shutting down video.")
 	r.disableVideo()
@@ -148,40 +142,29 @@ func (r *Robot) Run() error {
 	r.logf("Shutting down message channel.\n")
 	close(r.msgChan)
 
-	r.logf("Waiting for channel drainer.\n")
-	<-drainChan
-
 	r.logf("Waiting for handler.\n")
-	<-errChan
+	for err := range errChan {
+		if err == nil {
+			break
+		} else {
+			r.logf("Handler err: %v\n", err)
+		}
+	}
+	r.logf("Done waiting for handler.\n")
 
 	r.runDefaultCaps()
 
-	r.logf("Robot connection shutdown.\n")
+	r.logf("Robot shutdown.\n")
 	return err
-}
-
-func (r *Robot) drainChan(done chan struct{}) {
-	r.logf("Starting channel drain.")
-	defer r.logf("Finished draining the channel.")
-	for {
-		select {
-		case _, ok := <-r.msgChan:
-			if !ok {
-				close(done)
-				return
-			}
-		}
-	}
 }
 
 func (r *Robot) runDefaultCaps() {
 
-	r.logf("Running default caps for group\n")
-
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	for _, cap := range r.ctrlDef {
+	for g, cap := range r.ctrlDef {
+		r.logf("Running default cap for group %v.\n", g)
 		cap.callback()
 	}
 
@@ -189,9 +172,6 @@ func (r *Robot) runDefaultCaps() {
 
 func (r *Robot) ping() {
 	defer r.wg.Done()
-
-	r.logf("Starting ping!\n")
-	defer r.logf("Stopping ping!\n")
 
 	work := true
 	for work {
@@ -242,18 +222,18 @@ func (r *Robot) msgInHandler(ws *websocket.Conn, errChan chan error) {
 	for {
 		var msgSize uint32
 		if err := binary.Read(ws, binary.BigEndian, &msgSize); err != nil {
-			errChan <- fmt.Errorf("In Handler error: %v", err)
+			errChan <- fmt.Errorf("msgInHandler: %v", err)
 			return
 		}
 
 		if msgSize == 0 {
-			errChan <- fmt.Errorf("EOF: zero size message.")
+			errChan <- fmt.Errorf("msgInHandler: zero size message.")
 			return
 		}
 
 		msg := make([]byte, msgSize)
 		if _, err := io.ReadFull(ws, msg); err != nil {
-			errChan <- fmt.Errorf("Read error: %v", err)
+			errChan <- fmt.Errorf("msgInHandler: ReadFull: %v", err)
 			return
 		}
 
@@ -506,18 +486,10 @@ func (r *Robot) handleVideoConnection(conn net.Conn) error {
 		t := VIDEO_BUF_CAP
 		if err := binary.Write(bb, binary.BigEndian, t); err != nil {
 			return fmt.Errorf("Failed to write message header to buffer: %v", err)
-
 		}
 
 		bb.Write(buf[:size])
-
-		r.mu.Lock()
-		if !r.running {
-			r.mu.Unlock()
-			return fmt.Errorf("Robot not running.")
-		}
 		r.msgChan <- bb.Bytes()
-		r.mu.Unlock()
 	}
 }
 
@@ -555,24 +527,31 @@ func (r *Robot) handleCtrlCap(msg []byte) error {
 	return nil
 }
 
-func (r *Robot) msgOutHandler(ws *websocket.Conn, msgChan <-chan []byte, done <-chan struct{}, errChan chan error) {
+func (r *Robot) msgOutHandler(ws *websocket.Conn, errChan chan error) {
 
 	defer r.logf("Leaving msgOutHandler")
 
+	hadErr := false
 	for {
 		select {
-		case msg := <-msgChan:
-			if err := ws.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
-				errChan <- err
+		case msg, ok := <-r.msgChan:
+
+			if !ok {
+				errChan <- nil
 				return
 			}
-			if err := r.writeMsg(ws, msg); err != nil {
-				errChan <- fmt.Errorf("Out Handler error: %v", err)
-				return
+
+			if !hadErr {
+				if err := ws.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+					errChan <- err
+					hadErr = true
+				}
+				if err := r.writeMsg(ws, msg); err != nil {
+					errChan <- fmt.Errorf("Out Handler error: %v", err)
+					hadErr = true
+				}
 			}
-		case <-done:
-			errChan <- nil
-			return
+
 		}
 	}
 }

@@ -35,7 +35,6 @@ func main() {
 
 		log.Printf("Robot connected.\n")
 		defer log.Printf("Robot disconnected.\n")
-
 		wsRobotHandler := websocket.Handler(hr.Robot)
 		wsRobotHandler.ServeHTTP(w, r)
 	})
