@@ -235,10 +235,10 @@ func (r *Robot) relayVideo(buf []byte) {
 	defer r.videoLock.RUnlock()
 
 	for _, v := range r.videoClients {
-		if len(v) < 100 {
-			v <- buf
-		} else {
+		if len(v) == cap(v) {
 			r.logf("Dropping frame on video client.")
+		} else {
+			v <- buf
 		}
 
 	}
@@ -246,53 +246,8 @@ func (r *Robot) relayVideo(buf []byte) {
 
 // To clients wanting to view the video stream.
 func (r *Robot) Video(ws *websocket.Conn) {
-
-	byteChan := make(chan []byte, 1024)
-
-	r.logf("Setting up video client.\n")
-	done := make(chan interface{}, 1)
-	go func() {
-		for {
-			select {
-			case buf := <-byteChan:
-				if err := websocket.Message.Send(ws, buf); err != nil {
-					r.logf("Video client write error: %v\n", err)
-					return
-				}
-			case <-done:
-				done <- true
-				return
-			}
-		}
-	}()
-
-	r.logf("Registering video client.\n")
-	r.videoLock.Lock()
-	r.videoClients[ws] = byteChan
-	r.videoLock.Unlock()
-
-	buf := make([]byte, 1)
-	for {
-		n, err := ws.Read(buf)
-		if err != nil {
-			r.logf("Video client read error: %v\n", err)
-			break
-		} else {
-			r.logf("Video client read %v bytes\n", n)
-		}
-	}
-
-	r.logf("Deregistering video client.\n")
-	r.videoLock.Lock()
-	delete(r.videoClients, ws)
-	r.videoLock.Unlock()
-
-	r.logf("Shutting down video client.\n")
-	done <- true
-
-	r.logf("Waiting for video client to shutdown.\n")
-	<-done
-
+	v := NewVideoClient(r, 1024, true)
+	v.Run(ws)
 }
 
 func (r *Robot) getUsers() map[uint64][]byte {

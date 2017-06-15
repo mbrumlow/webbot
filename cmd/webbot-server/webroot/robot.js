@@ -17,6 +17,7 @@ class Robot {
 		this.reconnect = true;
 		this.post = false;
 		this.initDone = false;
+		this.dcnotify = false; 
 	}
 
 	Destroy() {
@@ -68,6 +69,10 @@ class Robot {
 				this.robot.systemChat("help> ", "Type /help for information on commands."); 
 				this.robot.post = true;	
 			}
+				
+			this.robot.dcnotify = false; 
+				
+			this.robot.systemChat("status> ", "Connected."); 
 
 		}
 		
@@ -80,6 +85,10 @@ class Robot {
 		
 		this.ws.onclose = function() {
 			this.robot.handleDissconnect();  
+			if( !this.robot.dcnotify ) { 
+				this.robot.systemChat("status> ", "Dissconnected."); 
+				this.robot.dcnotify = true; 
+			}
 			if(this.robot.reconnect) { 
 				var r = this.robot; 
 				setTimeout(function() {

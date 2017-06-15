@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"sync"
 	"sync/atomic"
 	"util"
 	"webbot"
@@ -17,6 +16,7 @@ import (
 type Client struct {
 	r        *Robot
 	msgChan  chan []byte
+	errChan  chan error
 	groupMap map[uint64]uint64
 	name     string
 	clientID uint64
@@ -30,6 +30,7 @@ func NewClient(r *Robot, name string, clientID uint64, cookie string, maxBuffer 
 	return &Client{
 		r:        r,
 		msgChan:  make(chan []byte, maxBuffer),
+		errChan:  make(chan error, 1),
 		groupMap: make(map[uint64]uint64),
 		name:     name,
 		clientID: clientID,
@@ -41,19 +42,12 @@ func NewClient(r *Robot, name string, clientID uint64, cookie string, maxBuffer 
 
 func (c *Client) Run(ws *websocket.Conn) {
 
-	done := make(chan struct{}, 1)
-	wg := sync.WaitGroup{}
+	errChan := make(chan error, 1)
 
-	wg.Add(1)
-	go c.messageHandler(ws, &wg, done)
+	go c.messageInHandler(ws, errChan)
+	go c.messageOutHandler(ws, errChan)
 
 	c.sendCookie()
-
-	// Register client.
-	c.r.addClient(c)
-
-	c.annouceChat(true)
-	defer c.annouceChat(false)
 
 	// Send caps to client.
 	capArray := c.r.getCaps()
@@ -61,32 +55,34 @@ func (c *Client) Run(ws *websocket.Conn) {
 		c.sendMessage(msg)
 	}
 
-	c.sendUsers()
+	users := c.sendUsers() // send current users and save them.
+	c.r.addClient(c)       // register client.
+	c.sendUsersDiff(users) // let client know about users who are now gone.
+
+	c.annouceChat(true)
+	defer c.annouceChat(false)
 	c.sendDone()
 
-	for {
-		msg, err := c.ReadMessage(ws, 1024)
-		if err != nil {
-			c.logf("ERROR: %v\n", err)
-			break
-		}
+	err := <-errChan
+	c.logf("Handler error: %v\n", err)
 
-		if msg, ok := c.handleClientMessage(msg); ok {
-			c.r.sendMessage(msg)
-		}
-	}
-
-	c.logf("Shutting down client message handler.\n")
-	close(done)
-
-	c.logf("Waiting for client message handler.\n")
-	wg.Wait()
+	c.logf("Closing socket.\n")
+	ws.Close()
 
 	c.logf("Deregistering client.\n")
 	c.r.delClient(c)
 
-	c.logf("Flushing outstanding messages.\n")
-	c.flush()
+	c.logf("Shutting down message channel.\n")
+	close(c.msgChan)
+
+	c.logf("Waiting for handler.\n")
+	for err := range errChan {
+		if err == nil {
+			break
+		} else {
+			c.logf("Handler err: %v\n", err)
+		}
+	}
 
 	c.logf("Client finished!\n")
 }
@@ -116,25 +112,30 @@ func (c *Client) sendCookie() {
 
 }
 
-func (c *Client) sendUsers() {
+func (c *Client) sendUsers() map[uint64][]byte {
 
 	// Send current list.
-	usersBefore := c.r.getUsers()
-	for _, msg := range usersBefore {
+	users := c.r.getUsers()
+	for _, msg := range users {
 		c.sendMessage(msg)
 	}
+
+	return users
+}
+
+func (c *Client) sendUsersDiff(users map[uint64][]byte) {
 
 	// Get the list again and remove those that are are currently in the list.
 	// Leaving us with only those that were here the first round, but no longer
 	// here.
 	usersAfter := c.r.getUsers()
 	for k, _ := range usersAfter {
-		delete(usersBefore, k)
+		delete(users, k)
 	}
 
 	// Tell the client to delete any users that disappeared while sending the
 	// users.
-	for k, _ := range usersBefore {
+	for k, _ := range users {
 
 		t := webbot.USER_CAP
 		name := []byte("none")
@@ -164,8 +165,6 @@ func (c *Client) sendUsers() {
 }
 
 func (c *Client) sendDone() {
-
-	c.logf("Sending done!\n")
 
 	t := webbot.DONE_CAP
 	buf := make([]byte, 0, 4)
@@ -348,28 +347,58 @@ func (c *Client) groupFilter(group, id, down uint32) bool {
 func (c *Client) sendMessage(msg []byte) {
 	// TODO: handle slow clients, we can't have them lagging us.
 	// NOTE: The entire server might just be slow not the client.
-	c.msgChan <- msg
+	if len(c.msgChan) == cap(c.msgChan) {
+		select {
+		case c.errChan <- fmt.Errorf("Message channel full!"):
+		}
+	} else {
+		c.msgChan <- msg
+	}
 }
 
-func (c *Client) messageHandler(ws *websocket.Conn, wg *sync.WaitGroup, done <-chan struct{}) {
+func (c *Client) messageInHandler(ws *websocket.Conn, errChan chan error) {
 
-	c.logf("messageHandler started.\n")
-	defer c.logf("messageHandler ended.\n")
+	c.logf("messageInHanlder started.\n")
+	defer c.logf("messageInHandler ended.\n")
 
-	defer wg.Done()
 	for {
-		select {
-		case msg := <-c.msgChan:
-			websocket.Message.Send(ws, msg)
-		case <-done:
+		msg, err := c.ReadMessage(ws, 1024)
+		if err != nil {
+			errChan <- err
 			return
+		}
+
+		if msg, ok := c.handleClientMessage(msg); ok {
+			c.r.sendMessage(msg)
 		}
 	}
 }
 
-func (c *Client) flush() {
-	close(c.msgChan)
-	util.DrainChan(c.msgChan, func() {})
+func (c *Client) messageOutHandler(ws *websocket.Conn, errChan chan error) {
+
+	c.logf("messageOutHanlder started.\n")
+	defer c.logf("messageOutHandler ended.\n")
+
+	hadErr := false
+	for {
+		select {
+		case msg, ok := <-c.msgChan:
+			if !ok {
+				errChan <- nil
+				return
+			}
+
+			if !hadErr {
+				if err := websocket.Message.Send(ws, msg); err != nil {
+					errChan <- err
+					hadErr = true
+				}
+			}
+		case err := <-c.errChan:
+			errChan <- err
+			hadErr = true
+		}
+	}
 }
 
 func (c *Client) logf(format string, v ...interface{}) {

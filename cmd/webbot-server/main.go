@@ -32,18 +32,11 @@ func main() {
 
 	hr := httpbot.NewRobot("webbot", 10*time.Second, true)
 	http.HandleFunc("/robot", func(w http.ResponseWriter, r *http.Request) {
-
-		log.Printf("Robot connected.\n")
-		defer log.Printf("Robot disconnected.\n")
 		wsRobotHandler := websocket.Handler(hr.Robot)
 		wsRobotHandler.ServeHTTP(w, r)
 	})
 
 	http.HandleFunc("/video", func(w http.ResponseWriter, r *http.Request) {
-
-		log.Printf("Video client connected.\n")
-		defer log.Printf("Video client disconnected.\n")
-
 		wsRobotHandler := websocket.Handler(hr.Video)
 		wsRobotHandler.ServeHTTP(w, r)
 	})
