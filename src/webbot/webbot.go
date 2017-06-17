@@ -391,8 +391,8 @@ func (r *Robot) keepVideoRunning() {
 		args = append(args, "-codec:v", "mpeg1video", "-s", "640x480", "-b:v", "384k", "-crf", "23", "-bf", "0")
 
 		if r.ffmpeg.AudioDriver != "" {
-			args = append(args, "-codec:a", "mp2", "-b:a", "32k")
-			args = append(args, "-muxdelay", "0.001")
+			args = append(args, "-codec:a", "mp2", "-b:a", "256k")
+			args = append(args, "-muxdelay", "0.0001")
 		}
 
 		args = append(args, fmt.Sprintf("tcp://%v", r.videoLn.Addr().String()))
@@ -545,10 +545,12 @@ func (r *Robot) msgOutHandler(ws *websocket.Conn, errChan chan error) {
 				if err := ws.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
 					errChan <- err
 					hadErr = true
+					continue
 				}
 				if err := r.writeMsg(ws, msg); err != nil {
 					errChan <- fmt.Errorf("Out Handler error: %v", err)
 					hadErr = true
+					continue
 				}
 			}
 

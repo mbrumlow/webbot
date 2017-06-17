@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
-	"fmt"
 	"httpbot"
 	"io"
 	"log"
@@ -30,7 +29,10 @@ func main() {
 		log.Println(http.ListenAndServe("localhost:6061", nil))
 	}()
 
+	ch := httpbot.NewChatHandler()
 	hr := httpbot.NewRobot("webbot", 10*time.Second, true)
+	hr.SetChatHandler(ch)
+
 	http.HandleFunc("/robot", func(w http.ResponseWriter, r *http.Request) {
 		wsRobotHandler := websocket.Handler(hr.Robot)
 		wsRobotHandler.ServeHTTP(w, r)
@@ -55,10 +57,7 @@ func main() {
 			}
 		}
 
-		if len(userName) == 0 {
-			anonID := atomic.AddUint64(&anonCount, 1)
-			userName = fmt.Sprintf("Anon%v", anonID)
-		}
+		userName, userID = hr.NextClient(userName)
 
 		if len(cookie) == 0 {
 			if c, err := genCookie(userName, key); err != nil {

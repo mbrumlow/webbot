@@ -19,6 +19,9 @@ type Robot struct {
 	name    string
 	timeout time.Duration
 
+	chLock sync.RWMutex
+	ch     *ChatHandler
+
 	clientLock sync.RWMutex
 	clients    map[*Client]bool
 
@@ -58,8 +61,12 @@ type clog struct {
 }
 
 func NewRobot(name string, timeout time.Duration, debug bool) *Robot {
+
+	cm := NewChatHandler()
+
 	r := &Robot{
 		name:         name,
+		ch:           cm,
 		timeout:      timeout,
 		capMap:       make(map[uint32][]byte),
 		capCache:     make(map[uint32][]byte),
@@ -72,6 +79,8 @@ func NewRobot(name string, timeout time.Duration, debug bool) *Robot {
 		debug:        debug,
 		logger:       log.New(os.Stderr, "", log.LstdFlags),
 	}
+
+	cm.AddRobot(r)
 
 	// Initialize with robot offline.
 	r.robotCapHandler(true, webbot.OFFLINE_CAP, make([]byte, 0))
@@ -248,19 +257,6 @@ func (r *Robot) relayVideo(buf []byte) {
 func (r *Robot) Video(ws *websocket.Conn) {
 	v := NewVideoClient(r, 1024, true)
 	v.Run(ws)
-}
-
-func (r *Robot) getUsers() map[uint64][]byte {
-
-	r.userLock.RLock()
-	defer r.userLock.RUnlock()
-
-	userList := make(map[uint64][]byte)
-	for k, v := range r.userList {
-		userList[k] = v
-	}
-
-	return userList
 }
 
 func (r *Robot) getCaps() [][]byte {
@@ -516,6 +512,36 @@ func (r *Robot) robotForwarder(forward bool, buf []byte) {
 
 	for k, _ := range r.clients {
 		k.sendMessage(buf)
+	}
+}
+
+func (r *Robot) handleChat(msg []byte) {
+
+}
+
+func (r *Robot) NextClient(userName string) (string, uint64) {
+	r.chLock.RLock()
+	defer r.chLock.RUnlock()
+	return r.ch.NextClient(userName)
+}
+
+func (r *Robot) SetChatHandler(ch *ChatHandler) {
+
+	r.chLock.Lock()
+	defer r.chLock.Unlock()
+
+	if r.ch != nil {
+		// TODO: Send current ch notification of all the robot's users leaving.
+		r.ch.DelRobot(r)
+	}
+
+	r.ch = ch
+
+	if ch != nil {
+		ch.AddRobot(r)
+		// TODO: Send notification of all the robot's users joining.
+	} else {
+		//TODO: create generic robot only chat handler.
 	}
 }
 

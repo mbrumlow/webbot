@@ -18,6 +18,8 @@ class Robot {
 		this.post = false;
 		this.initDone = false;
 		this.dcnotify = false; 
+		this.col = 0; 
+		this.coh = 0; 
 	}
 
 	Destroy() {
@@ -52,7 +54,6 @@ class Robot {
 
 	Connect() {
 	
-
 		this.ws = new WebSocket(this.clientURL); 
 		this.ws.binaryType = 'arraybuffer';
 		this.ws.robot = this; 
@@ -446,14 +447,18 @@ class Robot {
 	handleChatCap(data) {
 
 		var dv = new DataView(data);
-		var idh = dv.getUint32(0); 
-		var idl = dv.getUint32(4); 
-		var coh = dv.getUint32(8); 
-		var col = dv.getUint32(12); 
-	
-		var name = this.getUserName(idh, idl); 
+		var coh = dv.getUint32(0); 
+		var col = dv.getUint32(4); 
 
-		var str = String.fromCharCode.apply(null, new Uint16Array(data.slice(16)));
+
+		coh += this.coh; 
+		col += this.col;
+
+		this.coh++; 
+		this.col++;
+
+		var str = String.fromCharCode.apply(null, new Uint8Array(data.slice(8)));
+		var msg = JSON.parse(str);
 	
 		var elem = document.getElementById("chatLog");
 		var children = elem.children;
@@ -471,17 +476,22 @@ class Robot {
 		}
 
 		if( lcoh <= coh && lcol < col ) {
-			this.insertChatFast(name, str, coh, col, "chatLog") 
+			this.insertChatFast(msg.n, msg.m, coh, col, "chatLog", msg.c) 
 		} else { 
-			this.insertChatSlow(name, str, coh, col, "chatLog") 
+			this.insertChatSlow(msg.n, msg.m, coh, col, "chatLog", msg.c) 
 		}
 	}
 	
-	insertChatFast(n, msg, coh, col, type) {
+	insertChatFast(n, msg, coh, col, type, isChat) {
 
 		var elem = document.getElementById(type);
 
-		var node = this.newChatNode(n + ": ", msg, false); 
+		var name = n; 
+		if(isChat){
+			name += ": "
+		}
+
+		var node = this.newChatNode(name, msg, false); 
 		node.setAttribute("coh", coh); 
 		node.setAttribute("col", col); 
 
@@ -490,21 +500,38 @@ class Robot {
 
 	}
 
-	insertChatSlow(n, msg, coh, col, type) {
+	insertChatSlow(n, msg, coh, col, type, isChat) {
 
 		var elem = document.getElementById(type);
 		var children = elem.children;
 		
+		var name = n; 
+		if(isChat){
+			name += ": "
+		}
 	
-		var node = this.newChatNode(n + ": ", msg, false); 
+		var node = this.newChatNode(name, msg, false); 
 		node.setAttribute("coh", coh); 
 		node.setAttribute("col", col); 
 
 		for(var i = 0; i < children.length; i++) {
+
 			var lcoh = children[i].getAttribute("coh");
+			if( lcoh == undefined || lcoh == null )
+				lcoh = 0; 
+
 			var lcol = children[i].getAttribute("col");
+			if( lcol == undefined || lcol == null )
+				lcol = 0; 
+			
 			var local = children[i].getAttribute("isLocal");
-			if(!local && lcoh > coh && lcol > col) {
+			if(local == undefined || local == null) 
+				local = false
+
+			if(local)
+				continue;
+
+			if(lcoh > coh && lcol > col) {
 				elem.insertBefore(node, children[i]);
 				elem.scrollTop = elem.scrollHeight;	
 				return 
@@ -561,41 +588,6 @@ class Robot {
 
 	}
 	
-	handleUsers() {
-		
-		this.systemChat("> ", "/users"); 
-		this.systemChat("> ", "Listing users."); 
-		
-		var map = {};
-		var userCount = 0; 
-		var connCount = 0; 
-		for (var a in this.activeUsers) {
-			if (!this.activeUsers.hasOwnProperty(a)) {
-				continue;
-			}
-		
-			for (var b in this.activeUsers[a]) {
-
-				if (!this.activeUsers[a].hasOwnProperty(b)) {
-					continue;
-				}
-				
-				var user = this.activeUsers[a][b]; 
-
-				connCount++; 
-
-				if(map[user.name] == undefined){
-					this.systemChat("user> ", user.name); 
-					userCount++;
-					map[user.name] = true;
-				}
-			}
-		}
-
-		this.systemChat("> ", userCount + " unique users."); 
-		this.systemChat("> ", connCount + " connections."); 
-	}
-
 	handleControls() {
 
 		this.systemChat("> ", "/controls"); 
@@ -656,20 +648,9 @@ class Robot {
 			document.getElementById(this.chatInput).innerHTML = ""; 
 			return;
 		}
-		
-		if(str.startsWith("/users")) {
-			this.handleUsers(); 
-			document.getElementById(this.chatInput).innerHTML = ""; 
-			return;
-		}
-		
+
 		if(str.startsWith("/controls")) {
 			this.handleControls(); 
-			document.getElementById(this.chatInput).innerHTML = ""; 
-			return;
-		}
-
-		if(str.startsWith("/")) {
 			document.getElementById(this.chatInput).innerHTML = ""; 
 			return;
 		}
@@ -698,6 +679,11 @@ class Robot {
 				this.sendChat(); 
 				return;
 			}
+		}
+
+		if( e.keyCode == 13 && chatInput == document.activeElement && chatInput.innerHTML == "" ) {
+			e.preventDefault();
+			return;
 		}
 
 		if( chatInput == document.activeElement && chatInput.innerHTML != "" ) {

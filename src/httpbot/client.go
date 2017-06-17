@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"sync/atomic"
 	"util"
 	"webbot"
@@ -55,12 +56,18 @@ func (c *Client) Run(ws *websocket.Conn) {
 		c.sendMessage(msg)
 	}
 
-	users := c.sendUsers() // send current users and save them.
-	c.r.addClient(c)       // register client.
-	c.sendUsersDiff(users) // let client know about users who are now gone.
+	// TODO send chat backlog.
+	// This will work by sending the full back long on connect -- recording last
+	// chat ID.
+	// Then adding client.
+	// Following up with pushing out any new chats in the chat log > than the
+	// recorded chat ID.
+
+	c.r.addClient(c)
 
 	c.annouceChat(true)
 	defer c.annouceChat(false)
+
 	c.sendDone()
 
 	err := <-errChan
@@ -112,58 +119,6 @@ func (c *Client) sendCookie() {
 
 }
 
-func (c *Client) sendUsers() map[uint64][]byte {
-
-	// Send current list.
-	users := c.r.getUsers()
-	for _, msg := range users {
-		c.sendMessage(msg)
-	}
-
-	return users
-}
-
-func (c *Client) sendUsersDiff(users map[uint64][]byte) {
-
-	// Get the list again and remove those that are are currently in the list.
-	// Leaving us with only those that were here the first round, but no longer
-	// here.
-	usersAfter := c.r.getUsers()
-	for k, _ := range usersAfter {
-		delete(users, k)
-	}
-
-	// Tell the client to delete any users that disappeared while sending the
-	// users.
-	for k, _ := range users {
-
-		t := webbot.USER_CAP
-		name := []byte("none")
-
-		buf := make([]byte, 0, len(name)+8+4)
-		bb := bytes.NewBuffer(buf)
-
-		inout := uint32(0)
-		if err := binary.Write(bb, binary.BigEndian, &inout); err != nil {
-			return
-		}
-
-		if err := binary.Write(bb, binary.BigEndian, &k); err != nil {
-			return
-		}
-
-		bb.Write(name)
-
-		revision := atomic.AddUint64(&c.r.capTime, 1)
-		msg, err := util.Encode32TimeHeadBuf(t, revision, bb.Bytes())
-		if err != nil {
-			return
-		}
-
-		c.sendMessage(msg)
-	}
-}
-
 func (c *Client) sendDone() {
 
 	t := webbot.DONE_CAP
@@ -202,75 +157,85 @@ func (c *Client) handleClientMessage(msg []byte) ([]byte, bool) {
 }
 
 func (c *Client) annouceChat(in bool) {
-
-	t := webbot.USER_CAP
-
-	msg := []byte(c.name)
-	buf := make([]byte, 0, len(msg)+8+4)
-	bb := bytes.NewBuffer(buf)
-
-	inout := uint32(0)
+	c.r.chLock.RLock()
+	defer c.r.chLock.RUnlock()
 	if in {
-		inout = uint32(1)
-	}
-
-	if err := binary.Write(bb, binary.BigEndian, &inout); err != nil {
-		return
-	}
-
-	if err := binary.Write(bb, binary.BigEndian, &c.clientID); err != nil {
-		return
-	}
-
-	bb.Write(msg)
-
-	{
-		revision := atomic.AddUint64(&c.r.capTime, 1)
-		msg, err := util.Encode32TimeHeadBuf(t, revision, bb.Bytes())
-		if err != nil {
-			return
-		}
-
-		c.r.robotForwarder(true, msg)
-
-		c.r.capLock.Lock()
-		defer c.r.capLock.Unlock()
-
-		if in {
-			c.r.userList[c.clientID] = msg
-		} else {
-			delete(c.r.userList, c.clientID)
-		}
-
+		c.r.ch.chat(false, c.r, c.name, " has joined.")
+	} else {
+		c.r.ch.chat(false, c.r, c.name, " has parted.")
 	}
 }
 
 func (c *Client) handleClientChatCap(msg []byte) ([]byte, bool) {
 
-	t := webbot.CHAT_CAP
-
-	buf := make([]byte, 0, 4+8+8+len(msg))
-	bb := bytes.NewBuffer(buf)
-
-	if err := binary.Write(bb, binary.BigEndian, &t); err != nil {
+	str, err := util.DecodeUTF16(msg)
+	if err != nil {
+		c.logf("FIXME: handle this error: %v\n", err)
 		return nil, false
 	}
 
-	if err := binary.Write(bb, binary.BigEndian, &c.clientID); err != nil {
+	if strings.HasPrefix(str, "/") {
+		c.handleClientCommand(str)
 		return nil, false
 	}
 
-	chatOrder := atomic.AddUint64(&c.r.chatOrder, 1)
-	if err := binary.Write(bb, binary.BigEndian, &chatOrder); err != nil {
-		return nil, false
-	}
+	c.logf("CHAT: %v\n", str)
 
-	// TODO encode timestamps.
+	c.r.chLock.RLock()
+	defer c.r.chLock.RUnlock()
+	c.r.ch.chat(true, c.r, c.name, str)
 
-	bb.Write(msg)
-
-	c.r.robotForwarder(true, bb.Bytes())
 	return nil, false
+}
+
+func (c *Client) handleClientCommand(cmd string) {
+
+	if strings.HasPrefix(cmd, "/users") {
+		c.usersCommand()
+		return
+	}
+
+	log.Printf("UNKNOWN COMMAND: [%v]\n", cmd)
+
+}
+
+func (c *Client) usersCommand() {
+
+	c.r.chLock.RLock()
+	robots := make([]*Robot, 0, len(c.r.ch.clientMap))
+	for k, _ := range c.r.ch.clientMap {
+		robots = append(robots, k)
+	}
+	c.r.chLock.RUnlock()
+
+	c.sendChatMessage(">", " /users")
+	c.sendChatMessage(">", " Listing users.")
+
+	total := 0
+	uniqNames := make(map[string]bool)
+	for _, r := range robots {
+		r.clientLock.RLock()
+		names := make([]string, 0, len(r.clients))
+		for c, _ := range r.clients {
+			names = append(names, c.name)
+		}
+		r.clientLock.RUnlock()
+
+		for _, n := range names {
+			c.sendChatMessage("user>", fmt.Sprintf(" %v/%v\n", r.name, n))
+			uniqNames[n] = true
+			total++
+		}
+	}
+
+	c.sendChatMessage(">", fmt.Sprintf(" %v unique users.\n", len(uniqNames)))
+	c.sendChatMessage(">", fmt.Sprintf(" %v total  users.\n", total))
+}
+
+func (c *Client) sendChatMessage(name, msg string) {
+	chatOrder := atomic.AddUint64(&chatTime, 1)
+	buf := NewChat(false, c.r, name, msg, chatOrder)
+	c.msgChan <- buf
 }
 
 func (c *Client) handleClientCtrlCap(msg []byte) ([]byte, bool) {
