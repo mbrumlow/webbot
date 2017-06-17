@@ -222,8 +222,10 @@ func (c *Client) usersCommand() {
 		r.clientLock.RUnlock()
 
 		for _, n := range names {
-			c.sendChatMessage("user>", fmt.Sprintf(" %v/%v\n", r.name, n))
-			uniqNames[n] = true
+			if _, ok := uniqNames[n]; !ok {
+				c.sendChatMessage("user>", fmt.Sprintf(" %v\n", r.name, n))
+				uniqNames[n] = true
+			}
 			total++
 		}
 	}
