@@ -223,7 +223,7 @@ func (c *Client) usersCommand() {
 
 		for _, n := range names {
 			if _, ok := uniqNames[n]; !ok {
-				c.sendChatMessage("user>", fmt.Sprintf(" %v\n", r.name, n))
+				c.sendChatMessage("user>", fmt.Sprintf(" %v\n", n))
 				uniqNames[n] = true
 			}
 			total++
