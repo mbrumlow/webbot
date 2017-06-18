@@ -56,13 +56,6 @@ func (c *Client) Run(ws *websocket.Conn) {
 		c.sendMessage(msg)
 	}
 
-	// TODO send chat backlog.
-	// This will work by sending the full back long on connect -- recording last
-	// chat ID.
-	// Then adding client.
-	// Following up with pushing out any new chats in the chat log > than the
-	// recorded chat ID.
-
 	c.r.addClient(c)
 
 	c.sendOldChats()
