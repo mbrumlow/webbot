@@ -24,6 +24,7 @@ type ChatMessage struct {
 }
 
 type ChatHandler struct {
+	shared    bool
 	lock      sync.RWMutex
 	clientMap map[*Robot]bool
 
@@ -31,8 +32,9 @@ type ChatHandler struct {
 	chatLog *list.List
 }
 
-func NewChatHandler() *ChatHandler {
+func NewChatHandler(shared bool) *ChatHandler {
 	return &ChatHandler{
+		shared:    shared,
 		clientMap: make(map[*Robot]bool),
 		chatLog:   list.New(),
 	}
@@ -64,10 +66,16 @@ func (ch *ChatHandler) DelRobot(r *Robot) {
 	// TODO we need to announce the robot has left the chat.
 }
 
-func (ch *ChatHandler) chat(chat bool, robot *Robot, name string, msg string) {
+func (ch *ChatHandler) chat(chat bool, source string, name string, msg string) {
 
 	chatOrder := atomic.AddUint64(&chatTime, 1)
-	buf := NewChat(chat, robot, name, msg, chatOrder)
+
+	// We don't need to send the source if it is a shared chat.
+	if !ch.shared {
+		source = ""
+	}
+
+	buf := NewChat(chat, source, name, msg, chatOrder)
 
 	ch.chatMu.Lock()
 	ch.chatLog.PushBack(buf)
@@ -99,12 +107,12 @@ func (ch *ChatHandler) oldChats() [][]byte {
 	return log
 }
 
-func NewChat(chat bool, robot *Robot, name string, msg string, chatOrder uint64) []byte {
+func NewChat(chat bool, source string, name string, msg string, chatOrder uint64) []byte {
 
 	cm := ChatMessage{
 		Name:    name,
 		Message: msg,
-		Robot:   robot.name,
+		Robot:   source,
 		Chat:    chat,
 	}
 

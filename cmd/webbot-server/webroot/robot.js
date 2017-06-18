@@ -447,7 +447,7 @@ class Robot {
 						setTimeout(function() {
 							if( r.activeUsers[msg.n] == 0 ) { 
 								delete r.activeUsers[msg.n];	
-								r.insertChatSlow(msg.n, msg.m, coh, col, "chatLog", msg.c) 
+								r.insertChatSlow(msg.r, msg.n, msg.m, coh, col, "chatLog", msg.c) 
 							}
 
 						}, 1000); 
@@ -472,13 +472,13 @@ class Robot {
 		}
 
 		if( lcoh <= coh && lcol < col ) {
-			this.insertChatFast(msg.n, msg.m, coh, col, "chatLog", msg.c) 
+			this.insertChatFast(msg.r, msg.n, msg.m, coh, col, "chatLog", msg.c) 
 		} else { 
-			this.insertChatSlow(msg.n, msg.m, coh, col, "chatLog", msg.c) 
+			this.insertChatSlow(msg.r, msg.n, msg.m, coh, col, "chatLog", msg.c) 
 		}
 	}
 	
-	insertChatFast(n, msg, coh, col, type, isChat) {
+	insertChatFast(r, n, msg, coh, col, type, isChat) {
 
 		var elem = document.getElementById(type);
 
@@ -487,7 +487,7 @@ class Robot {
 			name += ": "
 		}
 
-		var node = this.newChatNode(name, msg, false); 
+		var node = this.newChatNode(r, name, msg, false); 
 		node.setAttribute("coh", coh); 
 		node.setAttribute("col", col); 
 
@@ -496,7 +496,7 @@ class Robot {
 
 	}
 
-	insertChatSlow(n, msg, coh, col, type, isChat) {
+	insertChatSlow(r, n, msg, coh, col, type, isChat) {
 
 		var elem = document.getElementById(type);
 		var children = elem.children;
@@ -506,7 +506,7 @@ class Robot {
 			name += ": "
 		}
 	
-		var node = this.newChatNode(name, msg, false); 
+		var node = this.newChatNode(r, name, msg, false); 
 		node.setAttribute("coh", coh); 
 		node.setAttribute("col", col); 
 
@@ -542,7 +542,41 @@ class Robot {
 
 	}
 
-	newChatNode(n, msg, local) {
+	newChatNode(r, n, msg, local) {
+
+		var node = document.createElement("div");
+		if( r.length > 0 ) { 
+			node.setAttribute("style", "border-style: dashed none none none; border-color: lightgrey; border-width: 1px 0px 0px 0px; margin: 0px;" );
+		}
+
+		var divRobotName = document.createElement("div")
+		divRobotName.setAttribute("style", "font-size: x-small; overflow: hidden; text-overflow: ellipsis;" );
+		divRobotName.innerHTML = r; 
+	
+		var divChat = document.createElement("div");
+
+		var p = document.createElement("p");
+
+		p.setAttribute("style", "margin: 0px;" );
+		
+		node.setAttribute("local", local); 
+		
+		var spanNodeName = document.createElement("span"); 
+		spanNodeName.innerHTML = n;
+		spanNodeName.setAttribute("style", "font-weight: bold;" );
+		var spanNodeChat = document.createElement("span"); 
+		spanNodeChat.innerHTML = msg; 
+		p.appendChild(spanNodeName);
+		p.appendChild(spanNodeChat);
+		divChat.appendChild(p); 
+
+		node.appendChild(divRobotName); 
+		node.appendChild(divChat); 
+		
+		return node;
+	}
+	
+	newChatNodePlane(n, msg, local) {
 
 		var node = document.createElement("div");
 		var p = document.createElement("p");
@@ -565,7 +599,7 @@ class Robot {
 
 
 	systemChat(name, msg) {
-		var node = this.newChatNode(name, msg, true); 	
+		var node = this.newChatNodePlane(name, msg, true); 	
 		var elem = document.getElementById("chatLog");
 		elem.appendChild(node); 
 		elem.scrollTop = elem.scrollHeight;

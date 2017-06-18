@@ -165,9 +165,9 @@ func (c *Client) annouceChat(in bool) {
 	c.r.chLock.RLock()
 	defer c.r.chLock.RUnlock()
 	if in {
-		c.r.ch.chat(false, c.r, c.name, " has joined.")
+		c.r.ch.chat(false, "", c.name, " has joined.")
 	} else {
-		c.r.ch.chat(false, c.r, c.name, " has parted.")
+		c.r.ch.chat(false, "", c.name, " has parted.")
 	}
 }
 
@@ -188,7 +188,7 @@ func (c *Client) handleClientChatCap(msg []byte) ([]byte, bool) {
 
 	c.r.chLock.RLock()
 	defer c.r.chLock.RUnlock()
-	c.r.ch.chat(true, c.r, c.name, str)
+	c.r.ch.chat(true, c.r.name, c.name, str)
 
 	return nil, false
 }
@@ -241,7 +241,7 @@ func (c *Client) usersCommand() {
 
 func (c *Client) sendChatMessage(name, msg string) {
 	chatOrder := atomic.AddUint64(&chatTime, 1)
-	buf := NewChat(false, c.r, name, msg, chatOrder)
+	buf := NewChat(false, "", name, msg, chatOrder)
 	c.msgChan <- buf
 }
 

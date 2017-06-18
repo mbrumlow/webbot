@@ -62,7 +62,7 @@ type clog struct {
 
 func NewRobot(name string, timeout time.Duration, debug bool) *Robot {
 
-	cm := NewChatHandler()
+	cm := NewChatHandler(false)
 
 	r := &Robot{
 		name:         name,

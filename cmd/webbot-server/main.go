@@ -29,7 +29,7 @@ func main() {
 		log.Println(http.ListenAndServe("localhost:6061", nil))
 	}()
 
-	ch := httpbot.NewChatHandler()
+	ch := httpbot.NewChatHandler(true)
 	hr := httpbot.NewRobot("webbot", 10*time.Second, true)
 	hr.SetChatHandler(ch)
 
