@@ -65,6 +65,8 @@ func (c *Client) Run(ws *websocket.Conn) {
 
 	c.r.addClient(c)
 
+	c.sendOldChats()
+
 	c.annouceChat(true)
 	defer c.annouceChat(false)
 
@@ -154,6 +156,16 @@ func (c *Client) handleClientMessage(msg []byte) ([]byte, bool) {
 	}
 
 	return nil, false
+}
+
+func (c *Client) sendOldChats() {
+	c.r.chLock.RLock()
+	log := c.r.ch.oldChats()
+	c.r.chLock.RUnlock()
+
+	for _, m := range log {
+		c.sendMessage(m)
+	}
 }
 
 func (c *Client) annouceChat(in bool) {

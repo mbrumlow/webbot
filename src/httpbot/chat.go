@@ -2,6 +2,7 @@ package httpbot
 
 import (
 	"bytes"
+	"container/list"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -25,11 +26,15 @@ type ChatMessage struct {
 type ChatHandler struct {
 	lock      sync.RWMutex
 	clientMap map[*Robot]bool
+
+	chatMu  sync.RWMutex
+	chatLog *list.List
 }
 
 func NewChatHandler() *ChatHandler {
 	return &ChatHandler{
 		clientMap: make(map[*Robot]bool),
+		chatLog:   list.New(),
 	}
 }
 
@@ -64,12 +69,34 @@ func (ch *ChatHandler) chat(chat bool, robot *Robot, name string, msg string) {
 	chatOrder := atomic.AddUint64(&chatTime, 1)
 	buf := NewChat(chat, robot, name, msg, chatOrder)
 
+	ch.chatMu.Lock()
+	ch.chatLog.PushBack(buf)
+	for ch.chatLog.Len() > 100 { // TODO make this configurable.
+		e := ch.chatLog.Front()
+		if e != nil {
+			ch.chatLog.Remove(e)
+		}
+	}
+	ch.chatMu.Unlock()
+
 	ch.lock.RLock()
 	defer ch.lock.RUnlock()
 	for r, _ := range ch.clientMap {
 		r.robotForwarder(true, buf)
 	}
+}
 
+func (ch *ChatHandler) oldChats() [][]byte {
+
+	ch.chatMu.RLock()
+	defer ch.chatMu.RUnlock()
+
+	log := make([][]byte, 0, ch.chatLog.Len())
+	for e := ch.chatLog.Front(); e != nil; e = e.Next() {
+		log = append(log, e.Value.([]byte))
+	}
+
+	return log
 }
 
 func NewChat(chat bool, robot *Robot, name string, msg string, chatOrder uint64) []byte {

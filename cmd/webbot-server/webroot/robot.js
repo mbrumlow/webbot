@@ -441,8 +441,22 @@ class Robot {
 		if( !msg.c &&  msg.m == " has parted." ) {
 			if( !(this.activeUsers[msg.n] == undefined || this.activeUsers[msg.n] == null) ) {
 				this.activeUsers[msg.n] -= 1; 
-				if( this.activeUsers[msg.n] <= 0 ) {
-					delete this.activeUsers[msg.n];	
+				if( this.activeUsers[msg.n] == 0 ) {
+					if( this.initDone ) { 
+						var r = this;
+						setTimeout(function() {
+							if( r.activeUsers[msg.n] == 0 ) { 
+								delete r.activeUsers[msg.n];	
+								r.insertChatSlow(msg.n, msg.m, coh, col, "chatLog", msg.c) 
+							}
+
+						}, 1000); 
+
+						return;
+					} else {
+						console.log("SHOULD FUCKING DELETE"); 
+						delete this.activeUsers[msg.n];	
+					}
 				} else {
 					return; 
 				}
