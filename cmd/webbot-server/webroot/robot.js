@@ -454,7 +454,6 @@ class Robot {
 
 						return;
 					} else {
-						console.log("SHOULD FUCKING DELETE"); 
 						delete this.activeUsers[msg.n];	
 					}
 				} else {
