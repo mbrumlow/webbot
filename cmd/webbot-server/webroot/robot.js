@@ -123,9 +123,6 @@ class Robot {
 			case 101: 
 				this.handleCtrlCapDef(msg); 
 				break; 
-			case 102: 
-				this.handleUserDef(msg); 
-				break; 
 			default: 
 				if(this.capMap[id]) {
 					this.capMap[id].function(this.capMap[id].cap, msg);
@@ -262,42 +259,6 @@ class Robot {
 		d.setTime(d.getTime() + (30*24*60*60*1000));
 		var expires = "expires="+d.toUTCString();
 		document.cookie = "CHAT_NAME=" + msg + "; " + expires;
-	}
-
-	handleUserDef(data) {
-		
-		var dv = new DataView(data);
-		var th = dv.getUint32(0); 
-		var tl = dv.getUint32(4); 
-		var i   = dv.getUint32(8); 
-		var idh = dv.getUint32(12); 
-		var idl = dv.getUint32(16); 
-		
-		var msg = String.fromCharCode.apply(null, new Uint8Array(data.slice(20)));
-
-		if(i > 0) { 
-		
-			if( this.activeUsers[idh] == undefined ) {
-				this.activeUsers[idh] = {} 
-			}
-
-			this.activeUsers[idh][idl] = { 
-				name: msg, 
-				th: th, 
-				tl: tl, 
-			}
-
-			if(this.initDone) 
-				this.systemChat(msg + " ", "has joined."); 
-
-		} else {
-			var user = this.activeUsers[idh][idl];
-			if(user != undefined && user != null)  { 
-				this.systemChat(user.name + " ", "has parted."); 
-			}
-			// TODO delete keys if empty. 
-			delete this.activeUsers[idh][idl]
-		}
 	}
 
 	handleInfoCapDef(data) {
@@ -466,6 +427,28 @@ class Robot {
 		if( children.length > 100 ) {
 			elem.removeChild(elem.firstChild);    
 		}
+
+		// THIS IS A HACK -- probably will be here forever now. 
+		if( !msg.c &&  msg.m == " has joined." ) {
+			if( this.activeUsers[msg.n] == undefined || this.activeUsers[msg.n] == null ) {
+				this.activeUsers[msg.n] = 1; 
+			} else {
+				this.activeUsers[msg.n] += 1; 
+				return;
+			}
+		}
+
+		if( !msg.c &&  msg.m == " has parted." ) {
+			if( !(this.activeUsers[msg.n] == undefined || this.activeUsers[msg.n] == null) ) {
+				this.activeUsers[msg.n] -= 1; 
+				if( this.activeUsers[msg.n] <= 0 ) {
+					delete this.activeUsers[msg.n];	
+				} else {
+					return; 
+				}
+			}
+		}
+		// END OF HACK it is safe now. 
 
 		var lcoh = -1;
 		var lcol = -1;
