@@ -233,7 +233,7 @@ class Robot {
 		c.setAttribute("style", style);
 		view.appendChild(c); 
 
-		this.jsmpeg = new JSMpeg.Player(this.videoURL, {canvas: c, disableGl: false, pauseWhenHidden: false, chunkSize: 512 });
+		this.jsmpeg = new JSMpeg.Player(this.videoURL, {canvas: c, disableGl: true, pauseWhenHidden: false, chunkSize: 128 });
 	
 	}
 

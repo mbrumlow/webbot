@@ -26,6 +26,7 @@ func main() {
 	ffmpeg := webbot.FFMPEG{
 		VideoDriver: "v4l2",
 		VideoDev:    *video,
+		FrameSize:   "640x480",
 	}
 
 	r := webbot.NewRobot(*host, *key, ffmpeg, true)

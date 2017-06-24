@@ -68,6 +68,8 @@ type FFMPEG struct {
 	AudioOptions     []string
 	AudioDev         string
 	KeepVideoRunning bool
+	FrameSize        string
+	BitRate          string
 }
 
 func NewRobot(url, key string, ffmpeg FFMPEG, debug bool) *Robot {
@@ -375,9 +377,19 @@ func (r *Robot) keepVideoRunning() {
 
 		args := make([]string, 0)
 
+		frameSize := r.ffmpeg.FrameSize
+		if frameSize == "" {
+			frameSize = "320x240"
+		}
+
+		bitRate := r.ffmpeg.BitRate
+		if bitRate == "" {
+			bitRate = "2k"
+		}
+
 		args = append(args, "-loglevel", "8")
 		args = append(args, "-f", r.ffmpeg.VideoDriver)
-		args = append(args, "-framerate", "25", "-video_size", "640x480")
+		args = append(args, "-framerate", "25", "-video_size", frameSize)
 		args = append(args, r.ffmpeg.VideoOptions...)
 		args = append(args, "-i", r.ffmpeg.VideoDev)
 
@@ -388,10 +400,10 @@ func (r *Robot) keepVideoRunning() {
 		}
 
 		args = append(args, "-f", "mpegts")
-		args = append(args, "-codec:v", "mpeg1video", "-s", "640x480", "-b:v", "384k", "-crf", "23", "-bf", "0")
+		args = append(args, "-codec:v", "mpeg1video", "-s", "640x480", "-b:v", bitRate, "-bf", "0")
 
 		if r.ffmpeg.AudioDriver != "" {
-			args = append(args, "-codec:a", "mp2", "-b:a", "256k")
+			args = append(args, "-codec:a", "mp2", "-b:a", "128k")
 			args = append(args, "-muxdelay", "0.0001")
 		}
 
@@ -468,7 +480,7 @@ func (r *Robot) handleVideoConnection(conn net.Conn) error {
 
 	defer conn.Close()
 
-	buf := make([]byte, 512)
+	buf := make([]byte, 1024)
 
 	for {
 		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
