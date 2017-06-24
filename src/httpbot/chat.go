@@ -77,15 +77,17 @@ func (ch *ChatHandler) chat(chat bool, source string, name string, msg string) {
 
 	buf := NewChat(chat, source, name, msg, chatOrder)
 
-	ch.chatMu.Lock()
-	ch.chatLog.PushBack(buf)
-	for ch.chatLog.Len() > 100 { // TODO make this configurable.
-		e := ch.chatLog.Front()
-		if e != nil {
-			ch.chatLog.Remove(e)
+	if chat {
+		ch.chatMu.Lock()
+		ch.chatLog.PushBack(buf)
+		for ch.chatLog.Len() > 100 { // TODO make this configurable.
+			e := ch.chatLog.Front()
+			if e != nil {
+				ch.chatLog.Remove(e)
+			}
 		}
+		ch.chatMu.Unlock()
 	}
-	ch.chatMu.Unlock()
 
 	ch.lock.RLock()
 	defer ch.lock.RUnlock()

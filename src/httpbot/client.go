@@ -22,9 +22,8 @@ type Client struct {
 	name     string
 	clientID uint64
 	cookie   string
-
-	debug  bool
-	logger *log.Logger
+	debug    bool
+	logger   *log.Logger
 }
 
 func NewClient(r *Robot, name string, clientID uint64, cookie string, maxBuffer int, debug bool) *Client {
@@ -43,6 +42,8 @@ func NewClient(r *Robot, name string, clientID uint64, cookie string, maxBuffer 
 
 func (c *Client) Run(ws *websocket.Conn) {
 
+	defer c.logf("Client finished!\n")
+
 	errChan := make(chan error, 1)
 
 	go c.messageInHandler(ws, errChan)
@@ -53,7 +54,15 @@ func (c *Client) Run(ws *websocket.Conn) {
 	// Send caps to client.
 	capArray := c.r.getCaps()
 	for _, msg := range capArray {
-		c.sendMessage(msg)
+		//c.sendMessage(msg)
+		if err := websocket.Message.Send(ws, msg); err != nil {
+			// Quick shutdown.
+			ws.Close()
+			close(c.msgChan)
+			<-errChan
+			<-errChan
+			return
+		}
 	}
 
 	c.r.addClient(c)
@@ -86,7 +95,6 @@ func (c *Client) Run(ws *websocket.Conn) {
 		}
 	}
 
-	c.logf("Client finished!\n")
 }
 
 func (c *Client) sendCookie() {
@@ -156,7 +164,15 @@ func (c *Client) sendOldChats() {
 	log := c.r.ch.oldChats()
 	c.r.chLock.RUnlock()
 
-	for _, m := range log {
+	n := (cap(c.msgChan) - len(c.msgChan)) / 2
+
+	if n > len(log) {
+		n = 0
+	} else {
+		n = len(log) - n
+	}
+
+	for _, m := range log[n:] {
 		c.sendMessage(m)
 	}
 }
@@ -322,6 +338,8 @@ func (c *Client) sendMessage(msg []byte) {
 	if len(c.msgChan) == cap(c.msgChan) {
 		select {
 		case c.errChan <- fmt.Errorf("Message channel full!"):
+		default:
+			c.logf("Message dropped\n")
 		}
 	} else {
 		c.msgChan <- msg
