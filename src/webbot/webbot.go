@@ -33,12 +33,11 @@ const (
 )
 
 type Robot struct {
-	url      string
-	key      string
-	debug    bool
-	nextID   uint32
-	logger   *log.Logger
-	videoDev string
+	url    string
+	key    string
+	debug  bool
+	nextID uint32
+	logger *log.Logger
 
 	ffmpeg FFMPEG
 
@@ -54,10 +53,11 @@ type Robot struct {
 	ctrlCap  map[uint32]CtrlCap
 	ctrlDef  map[uint32]CtrlCap
 
-	videoLock    sync.Mutex
-	videoLn      *net.TCPListener
-	videoCmd     *exec.Cmd
-	videoRunning bool
+	videoLock     sync.Mutex
+	videoLn       *net.TCPListener
+	videoCmd      *exec.Cmd
+	videoRunning  bool
+	videoDisabled bool
 }
 
 type FFMPEG struct {
@@ -128,7 +128,7 @@ func (r *Robot) Run() error {
 	ws.Close()
 
 	r.logf("Shutting down video.")
-	r.disableVideo()
+	r.disableVideo(true)
 
 	r.logf("Shutting down workers.")
 	close(r.doneChan)
@@ -282,7 +282,7 @@ func (r *Robot) handleVideoCap(msg []byte) error {
 	if enable {
 		r.enableVideo()
 	} else {
-		r.disableVideo()
+		r.disableVideo(false)
 	}
 
 	return nil
@@ -301,12 +301,13 @@ func (r *Robot) enableVideo() {
 	r.videoLock.Lock()
 	defer r.videoLock.Unlock()
 
+	r.logf("Enabling video.")
+	r.videoDisabled = false
+
 	if r.videoRunning {
 		r.wg.Done()
 		return
 	}
-
-	r.logf("Enabling video.")
 
 	ready := make(chan error, 1)
 	go r.startVideoServer(ready)
@@ -321,16 +322,18 @@ func (r *Robot) enableVideo() {
 	go r.keepVideoRunning()
 }
 
-func (r *Robot) disableVideo() {
-
-	if r.ffmpeg.KeepVideoRunning {
-		return
-	}
-
-	r.logf("Disabling video.")
+func (r *Robot) disableVideo(force bool) {
 
 	r.videoLock.Lock()
 	defer r.videoLock.Unlock()
+
+	r.logf("Disabling video.")
+
+	r.videoDisabled = true
+
+	if !force && r.ffmpeg.KeepVideoRunning {
+		return
+	}
 
 	if !r.videoRunning {
 		return
@@ -404,7 +407,7 @@ func (r *Robot) keepVideoRunning() {
 
 		if r.ffmpeg.AudioDriver != "" {
 			args = append(args, "-codec:a", "mp2", "-b:a", "128k")
-			args = append(args, "-muxdelay", "0.0001")
+			args = append(args, "-muxdelay", "0.001")
 		}
 
 		args = append(args, fmt.Sprintf("tcp://%v", r.videoLn.Addr().String()))
@@ -491,6 +494,14 @@ func (r *Robot) handleVideoConnection(conn net.Conn) error {
 
 		if err != nil {
 			return err
+		}
+
+		r.videoLock.Lock()
+		if r.videoDisabled {
+			r.videoLock.Unlock()
+			continue
+		} else {
+			r.videoLock.Unlock()
 		}
 
 		bb := bytes.NewBuffer(make([]byte, 0, size+4))
